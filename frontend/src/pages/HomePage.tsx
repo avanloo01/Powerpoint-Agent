@@ -1,128 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Cookies from 'js-cookie';
 import { generatePresentation } from '../services/api';
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    minHeight: '100vh',
-    display: 'flex',
-    flexDirection: 'column',
-    backgroundColor: '#f5f7fa',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    padding: '16px 24px',
-    backgroundColor: '#ffffff',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-  },
-  settingsButton: {
-    background: 'none',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    padding: '8px 16px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    color: '#374151',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    transition: 'background-color 0.2s',
-  },
-  main: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '40px 24px',
-  },
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: '16px',
-    padding: '48px',
-    width: '100%',
-    maxWidth: '600px',
-    boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
-  },
-  title: {
-    fontSize: '28px',
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: '8px',
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: '15px',
-    color: '#6b7280',
-    marginBottom: '32px',
-    textAlign: 'center',
-  },
-  textarea: {
-    width: '100%',
-    minHeight: '120px',
-    padding: '14px 16px',
-    fontSize: '15px',
-    border: '1.5px solid #e5e7eb',
-    borderRadius: '10px',
-    resize: 'vertical',
-    fontFamily: 'inherit',
-    lineHeight: '1.5',
-    outline: 'none',
-    transition: 'border-color 0.2s',
-  },
-  generateButton: {
-    width: '100%',
-    marginTop: '16px',
-    padding: '14px',
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#ffffff',
-    backgroundColor: '#4f46e5',
-    border: 'none',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    transition: 'background-color 0.2s',
-  },
-  generateButtonDisabled: {
-    backgroundColor: '#a5b4fc',
-    cursor: 'not-allowed',
-  },
-  errorBox: {
-    marginTop: '16px',
-    padding: '12px 16px',
-    backgroundColor: '#fef2f2',
-    border: '1px solid #fecaca',
-    borderRadius: '8px',
-    color: '#dc2626',
-    fontSize: '14px',
-  },
-  successBox: {
-    marginTop: '16px',
-    padding: '12px 16px',
-    backgroundColor: '#f0fdf4',
-    border: '1px solid #bbf7d0',
-    borderRadius: '8px',
-    color: '#16a34a',
-    fontSize: '14px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  downloadLink: {
-    color: '#4f46e5',
-    fontWeight: '600',
-    textDecoration: 'none',
-  },
-  hint: {
-    marginTop: '12px',
-    fontSize: '13px',
-    color: '#9ca3af',
-    textAlign: 'center',
-  },
-};
+import { getCurrentUserSettings, supabase } from '../services/supabase';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -130,17 +9,51 @@ const HomePage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [downloadUrl, setDownloadUrl] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [primaryColor, setPrimaryColor] = useState('#4f46e5');
+  const [hasApiKey, setHasApiKey] = useState(false);
 
-  const apiKey = Cookies.get('qwen_api_key') || '';
-  const primaryColor = Cookies.get('primary_color') || '#4f46e5';
+  useEffect(() => {
+    const hydrate = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const loggedIn = Boolean(user);
+      setIsLoggedIn(loggedIn);
+
+      if (!loggedIn) {
+        setHasApiKey(false);
+        setPrimaryColor('#4f46e5');
+        return;
+      }
+
+      const settings = await getCurrentUserSettings();
+      setHasApiKey(Boolean(settings?.api_key));
+      setPrimaryColor(settings?.primary_color || '#4f46e5');
+    };
+
+    void hydrate();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      void hydrate();
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       setError('Please enter a prompt first.');
       return;
     }
-    if (!apiKey) {
-      setError('No API key found. Please add your Qwen API key in Settings.');
+    if (!isLoggedIn) {
+      setError('Please log in from Settings before generating a presentation.');
+      return;
+    }
+    if (!hasApiKey) {
+      setError('No API key found for your account. Please add your Qwen API key in Settings.');
       return;
     }
 
@@ -149,8 +62,7 @@ const HomePage: React.FC = () => {
     setLoading(true);
 
     try {
-      const accentColor = Cookies.get('accent_color') || '#f59e0b';
-      const url = await generatePresentation({ prompt, apiKey, primaryColor, accentColor });
+      const url = await generatePresentation({ prompt });
       setDownloadUrl(url);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
@@ -161,26 +73,28 @@ const HomePage: React.FC = () => {
   };
 
   return (
-    <div style={styles.container}>
-      <header style={styles.header}>
+    <div className="min-h-screen bg-slate-100">
+      <header className="flex items-center justify-end bg-white px-6 py-4 shadow-sm">
         <button
-          style={styles.settingsButton}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           onClick={() => navigate('/settings')}
           aria-label="Open settings"
         >
-          ⚙️ Settings
+          {isLoggedIn ? '⚙️ Settings' : '🔐 Login'}
         </button>
       </header>
 
-      <main style={styles.main}>
-        <div style={styles.card}>
-          <h1 style={{ ...styles.title, color: primaryColor }}>PowerPoint Agent</h1>
-          <p style={styles.subtitle}>
+      <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-3xl items-center px-6 py-10">
+        <div className="w-full rounded-2xl bg-white p-8 shadow-xl md:p-12">
+          <h1 className="mb-2 text-center text-3xl font-bold" style={{ color: primaryColor }}>
+            PowerPoint Agent
+          </h1>
+          <p className="mb-8 text-center text-[15px] text-slate-500">
             Describe your presentation and let AI do the rest.
           </p>
 
           <textarea
-            style={styles.textarea}
+            className="min-h-[120px] w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-[15px] leading-relaxed outline-none transition focus:border-slate-400"
             placeholder="e.g. A 5-slide overview of renewable energy trends in 2025..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -189,8 +103,8 @@ const HomePage: React.FC = () => {
           />
 
           <button
+            className="mt-4 w-full rounded-xl px-4 py-3 text-base font-semibold text-white transition disabled:cursor-not-allowed"
             style={{
-              ...styles.generateButton,
               backgroundColor: loading ? '#a5b4fc' : primaryColor,
               cursor: loading ? 'not-allowed' : 'pointer',
             }}
@@ -200,29 +114,34 @@ const HomePage: React.FC = () => {
             {loading ? '⏳ Generating...' : '✨ Generate Presentation'}
           </button>
 
-          {error && <div style={styles.errorBox}>{error}</div>}
+          {error && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
+          )}
 
           {downloadUrl && (
-            <div style={styles.successBox}>
+            <div className="mt-4 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-600">
               <span>✅ Your presentation is ready!</span>
               <a
                 href={downloadUrl}
                 download="presentation.pptx"
-                style={styles.downloadLink}
+                className="font-semibold text-indigo-600 hover:text-indigo-700"
               >
                 Download ↓
               </a>
             </div>
           )}
 
-          {!apiKey && (
-            <p style={styles.hint}>
-              💡 Add your Qwen API key in{' '}
+          {(!isLoggedIn || !hasApiKey) && (
+            <p className="mt-3 text-center text-xs text-slate-400">
+              {isLoggedIn ? '💡 Add your Qwen API key in ' : '💡 Log in from '}
               <span
-                style={{ color: primaryColor, cursor: 'pointer', textDecoration: 'underline' }}
+                className="cursor-pointer underline"
+                style={{ color: primaryColor }}
                 onClick={() => navigate('/settings')}
               >
-                Settings
+                {isLoggedIn ? 'Settings' : 'Login'}
               </span>{' '}
               to get started.
             </p>

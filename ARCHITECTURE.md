@@ -361,11 +361,4 @@ terraform plan \
 ## 10. Future Improvements
 
 - [ ] **Logo in presentations** — download the logo from S3 inside `generate_pptx/handler.py` and insert it on each slide using `python-pptx` image shapes.
-- [ ] **Better PPTX theming** — use a custom `.pptx` template file as the base instead of the default blank presentation.
-- [ ] **Multiple Qwen models** — let users pick the model (qwen-plus, qwen-max) in Settings.
-- [ ] **Download history** — store generation metadata in DynamoDB and show a history list.
-- [ ] **OIDC authentication** — replace IAM long-lived keys with GitHub OIDC for secure, keyless deployments.
-- [ ] **Custom domain** — add `aws_route53_record` + ACM certificate to CloudFront for a custom domain.
 - [ ] **Unit tests** — add `pytest` tests for the Lambda handlers using `moto` to mock AWS services.
-- [ ] **WAF** — attach an AWS WAF Web ACL to the CloudFront distribution for rate limiting.
-- [ ] **Error monitoring** — integrate Sentry or AWS X-Ray for Lambda tracing.

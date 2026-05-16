@@ -8,6 +8,9 @@ import json
 import os
 import re
 import uuid
+from urllib import error as urlerror
+from urllib import parse as urlparse
+from urllib import request as urlrequest
 
 import boto3
 from openai import OpenAI
@@ -16,8 +19,80 @@ from pptx.dml.color import RGBColor
 from pptx.util import Inches, Pt
 
 S3_OUTPUT_BUCKET = os.environ.get("OUTPUT_BUCKET", "")
-QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen-turbo")
+QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen3.6-plus")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_SETTINGS_TABLE = os.environ.get("SUPABASE_SETTINGS_TABLE", "user_settings")
+
+
+def _extract_bearer_token(event: dict) -> str:
+    headers = event.get("headers") or {}
+    auth_header = headers.get("authorization") or headers.get("Authorization") or ""
+    if not auth_header.startswith("Bearer "):
+        return ""
+    return auth_header.split(" ", 1)[1].strip()
+
+
+def _supabase_request(method: str, url: str, headers: dict, body: dict | None = None) -> dict:
+    payload = None
+    request_headers = dict(headers)
+    if body is not None:
+        payload = json.dumps(body).encode("utf-8")
+        request_headers["Content-Type"] = "application/json"
+
+    req = urlrequest.Request(url=url, method=method, data=payload, headers=request_headers)
+    try:
+        with urlrequest.urlopen(req) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urlerror.HTTPError as exc:
+        detail = exc.read().decode("utf-8")
+        raise RuntimeError(f"Supabase request failed ({exc.code}): {detail}") from exc
+
+
+def _get_authenticated_user(token: str) -> dict:
+    if not token:
+        raise ValueError("Missing bearer token")
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_ANON_KEY must be configured")
+
+    url = f"{SUPABASE_URL}/auth/v1/user"
+    return _supabase_request(
+        "GET",
+        url,
+        {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+
+def _get_user_settings(user_id: str) -> dict | None:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured")
+
+    query = urlparse.urlencode(
+        {
+            "user_id": f"eq.{user_id}",
+            "select": "api_key,primary_color,accent_color,logo_url",
+            "limit": "1",
+        }
+    )
+    url = f"{SUPABASE_URL}/rest/v1/{SUPABASE_SETTINGS_TABLE}?{query}"
+    data = _supabase_request(
+        "GET",
+        url,
+        {
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        },
+    )
+
+    if isinstance(data, list) and data:
+        return data[0]
+    return None
 
 
 def _hex_to_rgb(hex_color: str) -> RGBColor:
@@ -97,17 +172,25 @@ def _parse_slides(raw: str) -> list[dict]:
 def handler(event: dict, context) -> dict:  # noqa: ANN001
     """AWS Lambda entry point."""
     try:
+        token = _extract_bearer_token(event)
+        user = _get_authenticated_user(token)
+        user_id = (user or {}).get("id", "")
+        if not user_id:
+            return _response(401, {"error": "Unauthorized"})
+
+        settings = _get_user_settings(user_id) or {}
+
         body = json.loads(event.get("body") or "{}")
         prompt: str = body.get("prompt", "").strip()
-        api_key: str = body.get("apiKey", "").strip()
-        primary_color: str = body.get("primaryColor", "#4f46e5")
-        accent_color: str = body.get("accentColor", "#f59e0b")
-        logo_url: str | None = body.get("logoUrl")
+        api_key: str = (settings.get("api_key") or "").strip()
+        primary_color: str = settings.get("primary_color") or "#4f46e5"
+        accent_color: str = settings.get("accent_color") or "#f59e0b"
+        logo_url: str | None = settings.get("logo_url")
 
         if not prompt:
             return _response(400, {"error": "prompt is required"})
         if not api_key:
-            return _response(400, {"error": "apiKey is required"})
+            return _response(400, {"error": "No API key saved for this user"})
 
         # --- Generate slide content via Qwen ---
         client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL)
@@ -152,6 +235,8 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
 
         return _response(200, {"downloadUrl": download_url})
 
+    except ValueError:
+        return _response(401, {"error": "Unauthorized"})
     except Exception as exc:  # noqa: BLE001
         return _response(500, {"error": str(exc)})
 

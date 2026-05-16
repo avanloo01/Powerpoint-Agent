@@ -1,200 +1,75 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Cookies from 'js-cookie';
 import { getLogoUploadUrl } from '../services/api';
-
-const COOKIE_OPTIONS = { expires: 365, sameSite: 'strict' as const, secure: true };
+import {
+  getCurrentUserSettings,
+  supabase,
+  upsertCurrentUserSettings,
+} from '../services/supabase';
 
 /** Only allow https:// and blob: URLs as logo preview sources to prevent XSS. */
 function isSafeImageUrl(url: string): boolean {
   return url.startsWith('https://') || url.startsWith('blob:');
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    minHeight: '100vh',
-    backgroundColor: '#f5f7fa',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '16px 24px',
-    backgroundColor: '#ffffff',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-    gap: '12px',
-  },
-  backButton: {
-    background: 'none',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    padding: '8px 16px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    color: '#374151',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-  },
-  headerTitle: {
-    fontSize: '18px',
-    fontWeight: '600',
-    color: '#111827',
-  },
-  main: {
-    maxWidth: '640px',
-    margin: '40px auto',
-    padding: '0 24px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '24px',
-  },
-  section: {
-    backgroundColor: '#ffffff',
-    borderRadius: '16px',
-    padding: '28px',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
-  },
-  sectionTitle: {
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: '6px',
-  },
-  sectionDesc: {
-    fontSize: '13px',
-    color: '#6b7280',
-    marginBottom: '16px',
-  },
-  input: {
-    width: '100%',
-    padding: '10px 14px',
-    fontSize: '14px',
-    border: '1.5px solid #e5e7eb',
-    borderRadius: '8px',
-    outline: 'none',
-    fontFamily: 'inherit',
-  },
-  colorRow: {
-    display: 'flex',
-    gap: '16px',
-    flexWrap: 'wrap' as const,
-  },
-  colorGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    flex: 1,
-    minWidth: '120px',
-  },
-  colorLabel: {
-    fontSize: '13px',
-    color: '#374151',
-    fontWeight: '500',
-  },
-  colorInputWrapper: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    border: '1.5px solid #e5e7eb',
-    borderRadius: '8px',
-    padding: '6px 12px',
-    backgroundColor: '#fff',
-  },
-  colorSwatch: {
-    width: '24px',
-    height: '24px',
-    borderRadius: '6px',
-    border: '1px solid #e5e7eb',
-    cursor: 'pointer',
-  },
-  colorHex: {
-    fontSize: '14px',
-    color: '#374151',
-    fontFamily: 'monospace',
-  },
-  colorPicker: {
-    position: 'absolute',
-    opacity: 0,
-    width: '24px',
-    height: '24px',
-    cursor: 'pointer',
-  },
-  saveButton: {
-    marginTop: '16px',
-    padding: '10px 24px',
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#ffffff',
-    backgroundColor: '#4f46e5',
-    border: 'none',
-    borderRadius: '8px',
-    cursor: 'pointer',
-  },
-  logoPreview: {
-    width: '80px',
-    height: '80px',
-    objectFit: 'contain' as const,
-    border: '1px solid #e5e7eb',
-    borderRadius: '8px',
-    marginBottom: '12px',
-  },
-  uploadArea: {
-    border: '2px dashed #d1d5db',
-    borderRadius: '10px',
-    padding: '24px',
-    textAlign: 'center' as const,
-    cursor: 'pointer',
-    transition: 'border-color 0.2s',
-  },
-  uploadAreaActive: {
-    borderColor: '#4f46e5',
-    backgroundColor: '#eef2ff',
-  },
-  uploadText: {
-    fontSize: '14px',
-    color: '#6b7280',
-  },
-  statusBox: {
-    marginTop: '10px',
-    padding: '10px 14px',
-    borderRadius: '8px',
-    fontSize: '13px',
-  },
-  successStatus: {
-    backgroundColor: '#f0fdf4',
-    border: '1px solid #bbf7d0',
-    color: '#16a34a',
-  },
-  errorStatus: {
-    backgroundColor: '#fef2f2',
-    border: '1px solid #fecaca',
-    color: '#dc2626',
-  },
-};
-
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [apiKey, setApiKey] = useState(Cookies.get('qwen_api_key') || '');
-  const [primaryColor, setPrimaryColor] = useState(Cookies.get('primary_color') || '#4f46e5');
-  const [accentColor, setAccentColor] = useState(Cookies.get('accent_color') || '#f59e0b');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  // Whether a logo has previously been uploaded (derived from cookie, used as a flag only).
-  const [hasStoredLogo, setHasStoredLogo] = useState<boolean>(() => {
-    const stored = Cookies.get('logo_url') ?? '';
-    return isSafeImageUrl(stored);
-  });
+  const [apiKey, setApiKey] = useState('');
+  const [primaryColor, setPrimaryColor] = useState('#4f46e5');
+  const [accentColor, setAccentColor] = useState('#f59e0b');
+  const [logoUrl, setLogoUrl] = useState('');
 
-  // Data URL produced by FileReader — always starts with "data:image/" because we validate
-  // file.type before reading, making it safe to use as an img src.
   const [dataPreviewUrl, setDataPreviewUrl] = useState<string | null>(null);
-
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
+
+  const [authStatus, setAuthStatus] = useState('');
+  const [authError, setAuthError] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
+  const [saveError, setSaveError] = useState('');
   const [logoStatus, setLogoStatus] = useState('');
   const [logoError, setLogoError] = useState('');
+
+  useEffect(() => {
+    const hydrate = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const loggedIn = Boolean(user);
+      setIsLoggedIn(loggedIn);
+
+      if (!loggedIn) {
+        setApiKey('');
+        setPrimaryColor('#4f46e5');
+        setAccentColor('#f59e0b');
+        setLogoUrl('');
+        return;
+      }
+
+      const settings = await getCurrentUserSettings();
+      setApiKey(settings?.api_key || '');
+      setPrimaryColor(settings?.primary_color || '#4f46e5');
+      setAccentColor(settings?.accent_color || '#f59e0b');
+      setLogoUrl(settings?.logo_url || '');
+    };
+
+    void hydrate();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      void hydrate();
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleFileChange = (file: File | null) => {
     if (!file) return;
@@ -205,7 +80,6 @@ const SettingsPage: React.FC = () => {
     setLogoError('');
     setLogoFile(file);
 
-    // Read as a data URL so the preview src never flows from URL.createObjectURL.
     const reader = new FileReader();
     reader.onload = (ev) => {
       const result = ev.target?.result;
@@ -222,188 +96,331 @@ const SettingsPage: React.FC = () => {
     handleFileChange(e.dataTransfer.files[0] || null);
   };
 
+  const handleLogin = async () => {
+    setAuthStatus('');
+    setAuthError('');
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (error) throw error;
+      setAuthStatus('Logged in successfully.');
+      setPassword('');
+    } catch (err: unknown) {
+      setAuthError(err instanceof Error ? err.message : 'Unable to log in.');
+    }
+  };
+
+  const handleSignUp = async () => {
+    setAuthStatus('');
+    setAuthError('');
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      if (error) throw error;
+      setAuthStatus('Account created. Check your email if confirmation is enabled.');
+      setPassword('');
+    } catch (err: unknown) {
+      setAuthError(err instanceof Error ? err.message : 'Unable to create account.');
+    }
+  };
+
+  const handleLogout = async () => {
+    setAuthStatus('');
+    setAuthError('');
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setAuthStatus('Logged out successfully.');
+      setDataPreviewUrl(null);
+      setLogoFile(null);
+    } catch (err: unknown) {
+      setAuthError(err instanceof Error ? err.message : 'Unable to log out.');
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    setSaveStatus('');
+    setSaveError('');
+    try {
+      await upsertCurrentUserSettings({
+        api_key: apiKey.trim(),
+        primary_color: primaryColor,
+        accent_color: accentColor,
+      });
+      setSaveStatus('Settings saved.');
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save settings.');
+    }
+  };
+
   const handleUploadLogo = async () => {
     if (!logoFile) {
       setLogoError('No file selected.');
       return;
     }
+
     setLogoStatus('Uploading...');
     setLogoError('');
     try {
       const { uploadUrl, publicUrl } = await getLogoUploadUrl(logoFile.type);
-      await fetch(uploadUrl, {
+      const response = await fetch(uploadUrl, {
         method: 'PUT',
         body: logoFile,
         headers: { 'Content-Type': logoFile.type },
       });
-      if (isSafeImageUrl(publicUrl)) {
-        Cookies.set('logo_url', publicUrl, COOKIE_OPTIONS);
-        setHasStoredLogo(true);
+
+      if (!response.ok) {
+        throw new Error('S3 upload failed.');
       }
-      setLogoStatus('✅ Logo uploaded successfully!');
-    } catch {
-      setLogoError('Failed to upload logo. Please try again.');
+
+      if (isSafeImageUrl(publicUrl)) {
+        await upsertCurrentUserSettings({ logo_url: publicUrl });
+        setLogoUrl(publicUrl);
+      }
+
+      setLogoStatus('Logo uploaded successfully.');
+      setLogoFile(null);
+    } catch (err: unknown) {
+      setLogoError(err instanceof Error ? err.message : 'Failed to upload logo.');
       setLogoStatus('');
     }
   };
 
-  const handleSaveSettings = () => {
-    Cookies.set('qwen_api_key', apiKey, COOKIE_OPTIONS);
-    Cookies.set('primary_color', primaryColor, COOKIE_OPTIONS);
-    Cookies.set('accent_color', accentColor, COOKIE_OPTIONS);
-    setSaveStatus('✅ Settings saved!');
-    setTimeout(() => setSaveStatus(''), 3000);
-  };
-
   return (
-    <div style={styles.container}>
-      <header style={styles.header}>
+    <div className="min-h-screen bg-slate-100">
+      <header className="flex items-center gap-3 bg-white px-6 py-4 shadow-sm">
         <button
-          style={styles.backButton}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
           onClick={() => navigate('/')}
           aria-label="Back to home"
         >
-          ← Back
+          Back
         </button>
-        <h1 style={styles.headerTitle}>Settings</h1>
+        <h1 className="text-lg font-semibold text-slate-900">{isLoggedIn ? 'Settings' : 'Login'}</h1>
       </header>
 
-      <main style={styles.main}>
-        {/* Logo Upload */}
-        <section style={styles.section}>
-          <h2 style={styles.sectionTitle}>Company Logo</h2>
-          <p style={styles.sectionDesc}>
-            Upload your logo to include it in generated presentations. Stored securely in S3.
-          </p>
-
-          {/* Show a local data-URL preview when a file is selected */}
-          {dataPreviewUrl && (
-            <img src={dataPreviewUrl} alt="Logo preview" style={styles.logoPreview} />
-          )}
-          {/* Show a text indicator (no img) when a logo is already stored */}
-          {!dataPreviewUrl && hasStoredLogo && (
-            <p style={{ fontSize: '13px', color: '#16a34a', marginBottom: '12px' }}>
-              ✅ A logo is already saved. Upload a new file to replace it.
+      <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-10">
+        {!isLoggedIn && (
+          <section className="rounded-2xl bg-white p-7 shadow-lg">
+            <h2 className="mb-1 text-base font-semibold text-slate-900">Login</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              Sign in with your email and password to access your saved API key and brand preferences.
             </p>
-          )}
-
-          <div
-            style={{
-              ...styles.uploadArea,
-              ...(dragging ? styles.uploadAreaActive : {}),
-            }}
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
-            role="button"
-            tabIndex={0}
-            aria-label="Upload logo"
-            onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
-          >
-            <p style={styles.uploadText}>
-              {logoFile ? `📎 ${logoFile.name}` : '📁 Click or drag & drop your logo here'}
-            </p>
-            <p style={{ ...styles.uploadText, fontSize: '12px', marginTop: '4px' }}>
-              PNG, JPG, SVG supported
-            </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
-            />
-          </div>
-
-          <button
-            style={{ ...styles.saveButton, marginTop: '12px' }}
-            onClick={handleUploadLogo}
-            disabled={!logoFile}
-          >
-            Upload Logo
-          </button>
-
-          {logoStatus && (
-            <div style={{ ...styles.statusBox, ...styles.successStatus }}>{logoStatus}</div>
-          )}
-          {logoError && (
-            <div style={{ ...styles.statusBox, ...styles.errorStatus }}>{logoError}</div>
-          )}
-        </section>
-
-        {/* Color Settings */}
-        <section style={styles.section}>
-          <h2 style={styles.sectionTitle}>Brand Colors</h2>
-          <p style={styles.sectionDesc}>
-            Choose your primary and accent colors for the presentation theme. Saved in your browser.
-          </p>
-
-          <div style={styles.colorRow}>
-            <div style={styles.colorGroup}>
-              <span style={styles.colorLabel}>Primary Color</span>
-              <div style={styles.colorInputWrapper}>
-                <div style={{ position: 'relative' }}>
-                  <div
-                    style={{ ...styles.colorSwatch, backgroundColor: primaryColor }}
-                  />
-                  <input
-                    type="color"
-                    style={styles.colorPicker}
-                    value={primaryColor}
-                    onChange={(e) => setPrimaryColor(e.target.value)}
-                    aria-label="Select primary color"
-                  />
-                </div>
-                <span style={styles.colorHex}>{primaryColor}</span>
-              </div>
+            <div className="flex flex-col gap-3">
+              <input
+                type="email"
+                className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-slate-400"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                aria-label="Email"
+                autoComplete="email"
+              />
+              <input
+                type="password"
+                className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-slate-400"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                aria-label="Password"
+                autoComplete="current-password"
+              />
             </div>
 
-            <div style={styles.colorGroup}>
-              <span style={styles.colorLabel}>Accent Color</span>
-              <div style={styles.colorInputWrapper}>
-                <div style={{ position: 'relative' }}>
-                  <div
-                    style={{ ...styles.colorSwatch, backgroundColor: accentColor }}
-                  />
-                  <input
-                    type="color"
-                    style={styles.colorPicker}
-                    value={accentColor}
-                    onChange={(e) => setAccentColor(e.target.value)}
-                    aria-label="Select accent color"
-                  />
-                </div>
-                <span style={styles.colorHex}>{accentColor}</span>
-              </div>
+            <div className="mt-4 flex gap-3">
+              <button
+                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                onClick={handleLogin}
+              >
+                Log In
+              </button>
+              <button
+                className="rounded-lg bg-teal-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800"
+                onClick={handleSignUp}
+              >
+                Sign Up
+              </button>
             </div>
-          </div>
-        </section>
 
-        {/* API Key */}
-        <section style={styles.section}>
-          <h2 style={styles.sectionTitle}>Qwen AI API Key</h2>
-          <p style={styles.sectionDesc}>
-            Your API key is stored only in your browser cookies and never sent to our servers.
-          </p>
-          <input
-            type="password"
-            style={styles.input}
-            placeholder="sk-..."
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            aria-label="Qwen API Key"
-            autoComplete="off"
-          />
-        </section>
+            {authStatus && (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700">{authStatus}</div>
+            )}
+            {authError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">{authError}</div>
+            )}
+          </section>
+        )}
 
-        {/* Save Button */}
-        <button style={styles.saveButton} onClick={handleSaveSettings}>
-          Save Settings
-        </button>
+        {isLoggedIn && (
+          <>
+            <section className="rounded-2xl bg-white p-7 shadow-lg">
+              <h2 className="mb-1 text-base font-semibold text-slate-900">Company Logo</h2>
+              <p className="mb-4 text-sm text-slate-500">
+                Upload your logo to include it in generated presentations. Stored in S3 and linked to your account.
+              </p>
 
-        {saveStatus && (
-          <div style={{ ...styles.statusBox, ...styles.successStatus }}>{saveStatus}</div>
+              {dataPreviewUrl && (
+                <img
+                  src={dataPreviewUrl}
+                  alt="Logo preview"
+                  className="mb-3 h-20 w-20 rounded-lg border border-slate-200 object-contain"
+                />
+              )}
+              {!dataPreviewUrl && logoUrl && isSafeImageUrl(logoUrl) && (
+                <img
+                  src={logoUrl}
+                  alt="Saved logo"
+                  className="mb-3 h-20 w-20 rounded-lg border border-slate-200 object-contain"
+                />
+              )}
+
+              <div
+                className={[
+                  'cursor-pointer rounded-xl border-2 border-dashed border-slate-300 p-6 text-center transition',
+                  dragging ? 'border-indigo-500 bg-indigo-50' : '',
+                ].join(' ')}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                role="button"
+                tabIndex={0}
+                aria-label="Upload logo"
+                onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+              >
+                <p className="text-sm text-slate-500">
+                  {logoFile ? logoFile.name : 'Click or drag and drop your logo here'}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  PNG, JPG, SVG supported
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+                />
+              </div>
+
+              <button
+                className="mt-3 rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+                onClick={handleUploadLogo}
+                disabled={!logoFile}
+              >
+                Upload Logo
+              </button>
+
+              {logoStatus && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700">{logoStatus}</div>
+              )}
+              {logoError && (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">{logoError}</div>
+              )}
+            </section>
+
+            <section className="rounded-2xl bg-white p-7 shadow-lg">
+              <h2 className="mb-1 text-base font-semibold text-slate-900">Brand Colors</h2>
+              <p className="mb-4 text-sm text-slate-500">
+                Choose your primary and accent colors for the presentation theme.
+              </p>
+
+              <div className="flex flex-wrap gap-4">
+                <div className="flex min-w-[120px] flex-1 flex-col gap-1.5">
+                  <span className="text-sm font-medium text-slate-700">Primary Color</span>
+                  <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
+                    <div className="relative">
+                      <div
+                        className="h-6 w-6 rounded-md border border-slate-200"
+                        style={{ backgroundColor: primaryColor }}
+                      />
+                      <input
+                        type="color"
+                        className="absolute left-0 top-0 h-6 w-6 cursor-pointer opacity-0"
+                        value={primaryColor}
+                        onChange={(e) => setPrimaryColor(e.target.value)}
+                        aria-label="Select primary color"
+                      />
+                    </div>
+                    <span className="font-mono text-sm text-slate-700">{primaryColor}</span>
+                  </div>
+                </div>
+
+                <div className="flex min-w-[120px] flex-1 flex-col gap-1.5">
+                  <span className="text-sm font-medium text-slate-700">Accent Color</span>
+                  <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
+                    <div className="relative">
+                      <div
+                        className="h-6 w-6 rounded-md border border-slate-200"
+                        style={{ backgroundColor: accentColor }}
+                      />
+                      <input
+                        type="color"
+                        className="absolute left-0 top-0 h-6 w-6 cursor-pointer opacity-0"
+                        value={accentColor}
+                        onChange={(e) => setAccentColor(e.target.value)}
+                        aria-label="Select accent color"
+                      />
+                    </div>
+                    <span className="font-mono text-sm text-slate-700">{accentColor}</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl bg-white p-7 shadow-lg">
+              <h2 className="mb-1 text-base font-semibold text-slate-900">Qwen AI API Key</h2>
+              <p className="mb-4 text-sm text-slate-500">
+                Your API key is saved to Supabase and retrieved server-side during generation.
+              </p>
+              <input
+                type="password"
+                className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-slate-400"
+                placeholder="sk-..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                aria-label="Qwen API Key"
+                autoComplete="off"
+              />
+            </section>
+
+            <section className="rounded-2xl bg-white p-7 shadow-lg">
+              <h2 className="mb-1 text-base font-semibold text-slate-900">Account</h2>
+              <p className="mb-4 text-sm text-slate-500">Save your preferences or log out from this device.</p>
+              <button
+                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                onClick={handleSaveSettings}
+              >
+                Save Settings
+              </button>
+              <button
+                className="mt-3 block rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
+                onClick={handleLogout}
+              >
+                Log Out
+              </button>
+
+              {saveStatus && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700">{saveStatus}</div>
+              )}
+              {saveError && (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">{saveError}</div>
+              )}
+              {authStatus && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-700">{authStatus}</div>
+              )}
+              {authError && (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">{authError}</div>
+              )}
+            </section>
+          </>
         )}
       </main>
     </div>

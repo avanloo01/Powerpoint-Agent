@@ -213,8 +213,12 @@ resource "aws_lambda_function" "generate_pptx" {
 
   environment {
     variables = {
-      OUTPUT_BUCKET = aws_s3_bucket.presentations.id
-      QWEN_MODEL    = var.qwen_model
+      OUTPUT_BUCKET              = aws_s3_bucket.presentations.id
+      QWEN_MODEL                 = var.qwen_model
+      SUPABASE_URL               = var.supabase_url
+      SUPABASE_ANON_KEY          = var.supabase_anon_key
+      SUPABASE_SERVICE_ROLE_KEY  = var.supabase_service_role_key
+      SUPABASE_SETTINGS_TABLE    = var.supabase_settings_table
     }
   }
 }
@@ -248,7 +252,9 @@ resource "aws_lambda_function" "upload_logo" {
 
   environment {
     variables = {
-      LOGO_BUCKET = aws_s3_bucket.logos.id
+      LOGO_BUCKET       = aws_s3_bucket.logos.id
+      SUPABASE_URL      = var.supabase_url
+      SUPABASE_ANON_KEY = var.supabase_anon_key
     }
   }
 }
