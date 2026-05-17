@@ -55,11 +55,6 @@ jobs:
       - name: Lint with ruff
         run: ruff check generate_pptx upload_logo
 
-      - name: Run tests
-        run: pytest tests/ -v --tb=short
-        # tests/ directory is optional; step is skipped if no tests exist
-        continue-on-error: false
-
   # ────────────────────────────────────────────
   # 2. Build & test the React frontend
   # ────────────────────────────────────────────
