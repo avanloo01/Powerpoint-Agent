@@ -112,6 +112,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "storage" {
 
 resource "aws_s3_bucket_policy" "storage_logo_public_read" {
   bucket = aws_s3_bucket.storage.id
+
+  depends_on = [aws_s3_bucket_public_access_block.frontend]
+  
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
