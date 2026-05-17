@@ -22,16 +22,10 @@ variable "frontend_bucket_name" {
   # Override this with a unique name, e.g. "pptx-agent-frontend-<your-account-id>"
 }
 
-variable "logos_bucket_name" {
-  description = "Globally unique S3 bucket name for user-uploaded logos."
+variable "storage_bucket_name" {
+  description = "Globally unique S3 bucket name for user-uploaded logos and generated PPTX files."
   type        = string
-  # Override this with a unique name, e.g. "pptx-agent-logos-<your-account-id>"
-}
-
-variable "presentations_bucket_name" {
-  description = "Globally unique S3 bucket name for generated PPTX files."
-  type        = string
-  # Override this with a unique name, e.g. "pptx-agent-presentations-<your-account-id>"
+  # Override this with a unique name, e.g. "pptx-agent-storage-<your-account-id>"
 }
 
 variable "qwen_model" {

@@ -145,8 +145,7 @@ jobs:
         run: |
           terraform plan \
             -var="frontend_bucket_name=${{ secrets.TF_FRONTEND_BUCKET }}" \
-            -var="logos_bucket_name=${{ secrets.TF_LOGOS_BUCKET }}" \
-            -var="presentations_bucket_name=${{ secrets.TF_PRESENTATIONS_BUCKET }}" \
+            -var="storage_bucket_name=${{ secrets.TF_STORAGE_BUCKET }}" \
             -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
             -var="supabase_anon_key=${{ secrets.SUPABASE_ANON_KEY }}" \
             -var="supabase_service_role_key=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
@@ -211,8 +210,7 @@ jobs:
         run: |
           terraform apply -auto-approve \
             -var="frontend_bucket_name=${{ secrets.TF_FRONTEND_BUCKET }}" \
-            -var="logos_bucket_name=${{ secrets.TF_LOGOS_BUCKET }}" \
-            -var="presentations_bucket_name=${{ secrets.TF_PRESENTATIONS_BUCKET }}" \
+            -var="storage_bucket_name=${{ secrets.TF_STORAGE_BUCKET }}" \
             -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
             -var="supabase_anon_key=${{ secrets.SUPABASE_ANON_KEY }}" \
             -var="supabase_service_role_key=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
@@ -239,14 +237,3 @@ jobs:
             --cache-control "no-cache,no-store,must-revalidate" \
             --include "*.html" \
             --exclude "*"
-
-      - name: Invalidate CloudFront cache
-        run: |
-          DISTRIBUTION_ID=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?Origins.Items[0].DomainName=='${{ secrets.TF_FRONTEND_BUCKET }}.s3.amazonaws.com'].Id" \
-            --output text)
-          if [ -n "$DISTRIBUTION_ID" ]; then
-            aws cloudfront create-invalidation \
-              --distribution-id "$DISTRIBUTION_ID" \
-              --paths "/*"
-          fi

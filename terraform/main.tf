@@ -37,9 +37,9 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
   block_public_acls       = true
-  block_public_policy     = true
+  block_public_policy     = false
   ignore_public_acls      = true
-  restrict_public_buckets = true
+  restrict_public_buckets = false
 }
 
 resource "aws_s3_bucket_versioning" "frontend" {
@@ -62,25 +62,27 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
 }
 
 # ─────────────────────────────────────────────
-# S3 — Logo Storage
+# S3 — Combined Asset Storage (logos + presentations)
 # ─────────────────────────────────────────────
 
-resource "aws_s3_bucket" "logos" {
-  bucket = var.logos_bucket_name
+resource "aws_s3_bucket" "storage" {
+  bucket = var.storage_bucket_name
   tags   = local.common_tags
 }
 
-resource "aws_s3_bucket_public_access_block" "logos" {
-  bucket = aws_s3_bucket.logos.id
+resource "aws_s3_bucket_public_access_block" "storage" {
+  bucket = aws_s3_bucket.storage.id
 
-  block_public_acls       = false
+  # ACL-based public access is never used
+  block_public_acls  = true
+  ignore_public_acls = true
+  # Bucket policy grants public read only for logo/* prefix
   block_public_policy     = false
-  ignore_public_acls      = false
   restrict_public_buckets = false
 }
 
-resource "aws_s3_bucket_cors_configuration" "logos" {
-  bucket = aws_s3_bucket.logos.id
+resource "aws_s3_bucket_cors_configuration" "storage" {
+  bucket = aws_s3_bucket.storage.id
 
   cors_rule {
     allowed_headers = ["*"]
@@ -91,42 +93,8 @@ resource "aws_s3_bucket_cors_configuration" "logos" {
   }
 }
 
-resource "aws_s3_bucket_policy" "logos_public_read" {
-  bucket = aws_s3_bucket.logos.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "PublicReadGetObject"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.logos.arn}/logo/*"
-      }
-    ]
-  })
-}
-
-# ─────────────────────────────────────────────
-# S3 — Generated Presentations
-# ─────────────────────────────────────────────
-
-resource "aws_s3_bucket" "presentations" {
-  bucket = var.presentations_bucket_name
-  tags   = local.common_tags
-}
-
-resource "aws_s3_bucket_public_access_block" "presentations" {
-  bucket = aws_s3_bucket.presentations.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "presentations" {
-  bucket = aws_s3_bucket.presentations.id
+resource "aws_s3_bucket_lifecycle_configuration" "storage" {
+  bucket = aws_s3_bucket.storage.id
 
   rule {
     id     = "expire-presentations"
@@ -140,6 +108,22 @@ resource "aws_s3_bucket_lifecycle_configuration" "presentations" {
       prefix = "presentations/"
     }
   }
+}
+
+resource "aws_s3_bucket_policy" "storage_logo_public_read" {
+  bucket = aws_s3_bucket.storage.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadLogos"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.storage.arn}/logo/*"
+      }
+    ]
+  })
 }
 
 # ─────────────────────────────────────────────
@@ -182,8 +166,7 @@ resource "aws_iam_role_policy" "lambda_s3" {
           "s3:GeneratePresignedUrl"
         ]
         Resource = [
-          "${aws_s3_bucket.presentations.arn}/*",
-          "${aws_s3_bucket.logos.arn}/*"
+          "${aws_s3_bucket.storage.arn}/*"
         ]
       }
     ]
@@ -213,7 +196,7 @@ resource "aws_lambda_function" "generate_pptx" {
 
   environment {
     variables = {
-      OUTPUT_BUCKET              = aws_s3_bucket.presentations.id
+      OUTPUT_BUCKET              = aws_s3_bucket.storage.id
       QWEN_MODEL                 = var.qwen_model
       SUPABASE_URL               = var.supabase_url
       SUPABASE_ANON_KEY          = var.supabase_anon_key
@@ -252,7 +235,7 @@ resource "aws_lambda_function" "upload_logo" {
 
   environment {
     variables = {
-      LOGO_BUCKET       = aws_s3_bucket.logos.id
+      LOGO_BUCKET       = aws_s3_bucket.storage.id
       SUPABASE_URL      = var.supabase_url
       SUPABASE_ANON_KEY = var.supabase_anon_key
     }
@@ -335,95 +318,19 @@ resource "aws_lambda_permission" "apigw_upload_logo" {
   source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*/upload-logo"
 }
 
-# ─────────────────────────────────────────────
-# CloudFront — Frontend Distribution
-# ─────────────────────────────────────────────
-
-resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "${var.project_name}-oac"
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
-
-resource "aws_cloudfront_distribution" "frontend" {
-  enabled             = true
-  is_ipv6_enabled     = true
-  default_root_object = "index.html"
-  price_class         = "PriceClass_100"
-  tags                = local.common_tags
-
-  origin {
-    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id                = "S3-${aws_s3_bucket.frontend.id}"
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
-  }
-
-  default_cache_behavior {
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    target_origin_id       = "S3-${aws_s3_bucket.frontend.id}"
-    viewer_protocol_policy = "redirect-to-https"
-    compress               = true
-
-    forwarded_values {
-      query_string = false
-      cookies {
-        forward = "none"
-      }
-    }
-
-    min_ttl     = 0
-    default_ttl = 3600
-    max_ttl     = 86400
-  }
-
-  # SPA fallback — serve index.html for 404/403 so React Router works
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
-  }
-
-  viewer_certificate {
-    cloudfront_default_certificate = true
-  }
-}
-
-# Grant CloudFront OAC permission to read the frontend bucket
-resource "aws_s3_bucket_policy" "frontend_oac" {
+# Grant public read access so Cloudflare can proxy the static website
+resource "aws_s3_bucket_policy" "frontend_public_read" {
   bucket = aws_s3_bucket.frontend.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "AllowCloudFrontOAC"
-        Effect = "Allow"
-        Principal = {
-          Service = "cloudfront.amazonaws.com"
-        }
-        Action   = "s3:GetObject"
-        Resource = "${aws_s3_bucket.frontend.arn}/*"
-        Condition = {
-          StringEquals = {
-            "AWS:SourceArn" = aws_cloudfront_distribution.frontend.arn
-          }
-        }
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.frontend.arn}/*"
       }
     ]
   })

@@ -1,6 +1,6 @@
-output "cloudfront_url" {
-  description = "HTTPS URL of the CloudFront distribution (use this as the app URL)."
-  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+output "frontend_website_url" {
+  description = "S3 static website endpoint — point your Cloudflare DNS CNAME here (HTTP origin)."
+  value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
 }
 
 output "api_gateway_url" {
@@ -13,14 +13,9 @@ output "frontend_bucket_name" {
   value       = aws_s3_bucket.frontend.id
 }
 
-output "logos_bucket_name" {
-  description = "S3 bucket for user-uploaded company logos."
-  value       = aws_s3_bucket.logos.id
-}
-
-output "presentations_bucket_name" {
-  description = "S3 bucket for generated PPTX files (expire after 7 days)."
-  value       = aws_s3_bucket.presentations.id
+output "storage_bucket_name" {
+  description = "S3 bucket for user-uploaded logos (logo/ prefix) and generated PPTX files (presentations/ prefix, expire after 7 days)."
+  value       = aws_s3_bucket.storage.id
 }
 
 output "generate_pptx_function_name" {
