@@ -1,0 +1,235 @@
+name: CI/CD — PowerPoint Agent
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Only one deployment runs at a time; PRs cancel on new push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ap-southeast-1
+  TF_VERSION: "1.8.0"
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+
+jobs:
+  # ────────────────────────────────────────────
+  # 1. Lint & test the Python backend
+  # ────────────────────────────────────────────
+  backend-test:
+    name: Backend — lint & test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            backend/generate_pptx/requirements.txt
+            backend/upload_logo/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff pytest
+          pip install -r generate_pptx/requirements.txt
+          pip install -r upload_logo/requirements.txt
+
+      - name: Lint with ruff
+        run: ruff check generate_pptx upload_logo
+
+  # ────────────────────────────────────────────
+  # 2. Build & test the React frontend
+  # ────────────────────────────────────────────
+  frontend-build:
+    name: Frontend — install, lint & build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Run tests
+        run: npm test -- --watchAll=false --passWithNoTests
+
+      - name: Build
+        env:
+          VITE_GENERATE_URL: ${{ secrets.GENERATE_URL }}
+          VITE_UPLOAD_LOGO_URL: ${{ secrets.UPLOAD_LOGO_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_SETTINGS_TABLE: ${{ secrets.SUPABASE_SETTINGS_TABLE }}
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist/
+          retention-days: 7
+
+  # ────────────────────────────────────────────
+  # 3. Terraform plan (on every PR)
+  # ────────────────────────────────────────────
+  terraform-plan:
+    name: Terraform — plan
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-build]
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: |
+          terraform plan \
+            -var="frontend_bucket_name=${{ secrets.TF_FRONTEND_BUCKET }}" \
+            -var="storage_bucket_name=${{ secrets.TF_STORAGE_BUCKET }}" \
+            -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
+            -var="supabase_anon_key=${{ secrets.SUPABASE_ANON_KEY }}" \
+            -var="supabase_service_role_key=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -var="supabase_settings_table=${{ secrets.SUPABASE_SETTINGS_TABLE }}" \
+            -out=tfplan
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: terraform/tfplan
+          retention-days: 1
+
+  # ────────────────────────────────────────────
+  # 4. Deploy (only on push to main)
+  # ────────────────────────────────────────────
+  deploy:
+    name: Deploy — Terraform apply + S3 sync
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-build]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: production
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python (for Lambda packaging)
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Lambda dependencies into package directory
+        run: |
+          pip install \
+            -r ../backend/generate_pptx/requirements.txt \
+            -t ../backend/generate_pptx/
+          pip install \
+            -r ../backend/upload_logo/requirements.txt \
+            -t ../backend/upload_logo/
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform apply
+        run: |
+          terraform apply -auto-approve \
+            -var="frontend_bucket_name=${{ secrets.TF_FRONTEND_BUCKET }}" \
+            -var="storage_bucket_name=${{ secrets.TF_STORAGE_BUCKET }}" \
+            -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
+            -var="supabase_anon_key=${{ secrets.SUPABASE_ANON_KEY }}" \
+            -var="supabase_service_role_key=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -var="supabase_settings_table=${{ secrets.SUPABASE_SETTINGS_TABLE }}"
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v4.1.3
+        with:
+          name: frontend-build
+          path: ../frontend/dist
+
+      - name: Deploy frontend to S3
+        run: |
+          aws s3 sync ../frontend/dist/ \
+            s3://${{ secrets.TF_FRONTEND_BUCKET }}/ \
+            --delete \
+            --cache-control "public,max-age=31536000,immutable" \
+            --exclude "*.html"
+
+          # HTML files must not be cached so the browser always fetches the latest
+          aws s3 sync ../frontend/dist/ \
+            s3://${{ secrets.TF_FRONTEND_BUCKET }}/ \
+            --delete \
+            --cache-control "no-cache,no-store,must-revalidate" \
+            --include "*.html" \
+            --exclude "*"
