@@ -249,73 +249,33 @@ resource "aws_cloudwatch_log_group" "upload_logo" {
 }
 
 # ─────────────────────────────────────────────
-# API Gateway (HTTP API v2)
+# Lambda Function URLs (replaces API Gateway)
 # ─────────────────────────────────────────────
 
-resource "aws_apigatewayv2_api" "main" {
-  name          = "${var.project_name}-api"
-  protocol_type = "HTTP"
-  tags          = local.common_tags
+resource "aws_lambda_function_url" "generate_pptx" {
+  function_name      = aws_lambda_function.generate_pptx.function_name
+  authorization_type = "NONE"
 
-  cors_configuration {
-    allow_headers = ["Content-Type", "Authorization"]
-    allow_methods = ["POST", "OPTIONS"]
-    allow_origins = ["*"]
-    max_age       = 300
+  cors {
+    allow_credentials = false
+    allow_headers     = ["content-type", "authorization"]
+    allow_methods     = ["POST"]
+    allow_origins     = ["*"]
+    max_age           = 300
   }
 }
 
-resource "aws_apigatewayv2_stage" "default" {
-  api_id      = aws_apigatewayv2_api.main.id
-  name        = "$default"
-  auto_deploy = true
-  tags        = local.common_tags
-}
+resource "aws_lambda_function_url" "upload_logo" {
+  function_name      = aws_lambda_function.upload_logo.function_name
+  authorization_type = "NONE"
 
-# --- /generate integration ---
-
-resource "aws_apigatewayv2_integration" "generate_pptx" {
-  api_id                 = aws_apigatewayv2_api.main.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.generate_pptx.invoke_arn
-  payload_format_version = "2.0"
-}
-
-resource "aws_apigatewayv2_route" "generate_pptx" {
-  api_id    = aws_apigatewayv2_api.main.id
-  route_key = "POST /generate"
-  target    = "integrations/${aws_apigatewayv2_integration.generate_pptx.id}"
-}
-
-resource "aws_lambda_permission" "apigw_generate_pptx" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.generate_pptx.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*/generate"
-}
-
-# --- /upload-logo integration ---
-
-resource "aws_apigatewayv2_integration" "upload_logo" {
-  api_id                 = aws_apigatewayv2_api.main.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.upload_logo.invoke_arn
-  payload_format_version = "2.0"
-}
-
-resource "aws_apigatewayv2_route" "upload_logo" {
-  api_id    = aws_apigatewayv2_api.main.id
-  route_key = "POST /upload-logo"
-  target    = "integrations/${aws_apigatewayv2_integration.upload_logo.id}"
-}
-
-resource "aws_lambda_permission" "apigw_upload_logo" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.upload_logo.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*/upload-logo"
+  cors {
+    allow_credentials = false
+    allow_headers     = ["content-type", "authorization"]
+    allow_methods     = ["POST"]
+    allow_origins     = ["*"]
+    max_age           = 300
+  }
 }
 
 # Grant public read access so Cloudflare can proxy the static website

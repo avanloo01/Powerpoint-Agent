@@ -1,8 +1,8 @@
 create table if not exists public.user_settings (
   user_id uuid primary key references auth.users (id) on delete cascade,
   api_key text not null default '',
-  primary_color text not null default '#4f46e5',
-  accent_color text not null default '#f59e0b',
+  primary_color text not null default '#C00000',
+  accent_color text not null default '#A6CAEC',
   logo_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

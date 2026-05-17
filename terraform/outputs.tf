@@ -3,9 +3,14 @@ output "frontend_website_url" {
   value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
 }
 
-output "api_gateway_url" {
-  description = "Base URL of the HTTP API Gateway. Set REACT_APP_API_URL to this value."
-  value       = aws_apigatewayv2_api.main.api_endpoint
+output "generate_pptx_function_url" {
+  description = "Lambda Function URL for generate-pptx. Set VITE_GENERATE_URL to this value."
+  value       = aws_lambda_function_url.generate_pptx.function_url
+}
+
+output "upload_logo_function_url" {
+  description = "Lambda Function URL for upload-logo. Set VITE_UPLOAD_LOGO_URL to this value."
+  value       = aws_lambda_function_url.upload_logo.function_url
 }
 
 output "frontend_bucket_name" {

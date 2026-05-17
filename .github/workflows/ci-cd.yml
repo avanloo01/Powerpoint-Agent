@@ -93,7 +93,8 @@ jobs:
 
       - name: Build
         env:
-          VITE_API_URL: ${{ secrets.REACT_APP_API_URL }}
+          VITE_GENERATE_URL: ${{ secrets.GENERATE_URL }}
+          VITE_UPLOAD_LOGO_URL: ${{ secrets.UPLOAD_LOGO_URL }}
           VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VITE_SUPABASE_SETTINGS_TABLE: ${{ secrets.SUPABASE_SETTINGS_TABLE }}

@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { getAccessToken } from './supabase';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const GENERATE_URL = import.meta.env.VITE_GENERATE_URL || '';
+const UPLOAD_LOGO_URL = import.meta.env.VITE_UPLOAD_LOGO_URL || '';
 
 export interface GenerateRequest {
   prompt: string;
@@ -13,7 +14,7 @@ export interface GenerateRequest {
 export async function generatePresentation(req: GenerateRequest): Promise<string> {
   const token = await getAccessToken();
   const response = await axios.post<{ downloadUrl: string }>(
-    `${API_BASE_URL}/generate`,
+    GENERATE_URL,
     { prompt: req.prompt },
     {
       headers: {
@@ -33,7 +34,7 @@ export async function getLogoUploadUrl(
 ): Promise<{ uploadUrl: string; publicUrl: string }> {
   const token = await getAccessToken();
   const response = await axios.post<{ uploadUrl: string; publicUrl: string }>(
-    `${API_BASE_URL}/upload-logo`,
+    UPLOAD_LOGO_URL,
     { fileType },
     {
       headers: {
