@@ -113,7 +113,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "storage" {
 resource "aws_s3_bucket_policy" "storage_logo_public_read" {
   bucket = aws_s3_bucket.storage.id
 
-  depends_on = [aws_s3_bucket_public_access_block.frontend]
+  depends_on = [aws_s3_bucket_public_access_block.storage]
   
   policy = jsonencode({
     Version = "2012-10-17"
@@ -165,12 +165,16 @@ resource "aws_iam_role_policy" "lambda_s3" {
         Effect = "Allow"
         Action = [
           "s3:PutObject",
-          "s3:GetObject",
-          "s3:GeneratePresignedUrl"
-        ]
+          "s3:GetObject"
+        ],
         Resource = [
           "${aws_s3_bucket.storage.arn}/*"
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [aws_s3_bucket.storage.arn]
       }
     ]
   })
@@ -284,6 +288,8 @@ resource "aws_lambda_function_url" "upload_logo" {
 # Grant public read access so Cloudflare can proxy the static website
 resource "aws_s3_bucket_policy" "frontend_public_read" {
   bucket = aws_s3_bucket.frontend.id
+
+  depends_on = [aws_s3_bucket_public_access_block.frontend]
 
   policy = jsonencode({
     Version = "2012-10-17"
