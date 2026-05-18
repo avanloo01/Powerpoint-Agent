@@ -103,72 +103,16 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────────────────
-  # 3. Terraform plan (on every PR)
-  # ────────────────────────────────────────────
-  terraform-plan:
-    name: Terraform — plan
-    runs-on: ubuntu-latest
-    needs: [backend-test, frontend-build]
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: terraform
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform init
-        run: terraform init
-
-      - name: Terraform validate
-        run: terraform validate
-
-      - name: Terraform plan
-        run: |
-          terraform plan \
-            -var="frontend_bucket_name=${{ secrets.TF_FRONTEND_BUCKET }}" \
-            -var="storage_bucket_name=${{ secrets.TF_STORAGE_BUCKET }}" \
-            -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
-            -var="supabase_anon_key=${{ secrets.SUPABASE_ANON_KEY }}" \
-            -var="supabase_service_role_key=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -var="supabase_settings_table=${{ secrets.SUPABASE_SETTINGS_TABLE }}" \
-            -out=tfplan
-
-      - name: Upload plan artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: terraform/tfplan
-          retention-days: 1
-
-  # ────────────────────────────────────────────
   # 4. Deploy (only on push to main)
   # ────────────────────────────────────────────
   deploy:
-    name: Deploy — Terraform apply + S3 sync
+    name: Deploy — Lambda deploy + S3 sync
     runs-on: ubuntu-latest
     needs: [backend-test, frontend-build]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     environment: production
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: terraform
 
     steps:
       - uses: actions/checkout@v4
@@ -187,11 +131,6 @@ jobs:
             -r ../backend/upload_logo/requirements.txt \
             -t ../backend/upload_logo/
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -199,35 +138,38 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Terraform init
-        run: terraform init
-
-      - name: Terraform apply
+      - name: Package and deploy generate_pptx Lambda
         run: |
-          terraform apply -auto-approve \
-            -var="frontend_bucket_name=${{ secrets.TF_FRONTEND_BUCKET }}" \
-            -var="storage_bucket_name=${{ secrets.TF_STORAGE_BUCKET }}" \
-            -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
-            -var="supabase_anon_key=${{ secrets.SUPABASE_ANON_KEY }}" \
-            -var="supabase_service_role_key=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -var="supabase_settings_table=${{ secrets.SUPABASE_SETTINGS_TABLE }}"
+          cd backend/generate_pptx
+          zip -r ../../generate_pptx.zip .
+          aws lambda update-function-code \
+            --function-name pptx-agent-generate-pptx \
+            --zip-file fileb://../../generate_pptx.zip
+
+      - name: Package and deploy upload_logo Lambda
+        run: |
+          cd backend/upload_logo
+          zip -r ../../upload_logo.zip .
+          aws lambda update-function-code \
+            --function-name pptx-agent-upload-logo \
+            --zip-file fileb://../../upload_logo.zip
 
       - name: Download frontend build artifact
         uses: actions/download-artifact@v4.1.3
         with:
           name: frontend-build
-          path: ../frontend/dist
+          path: frontend/dist
 
       - name: Deploy frontend to S3
         run: |
-          aws s3 sync ../frontend/dist/ \
+          aws s3 sync frontend/dist/ \
             s3://${{ secrets.TF_FRONTEND_BUCKET }}/ \
             --delete \
             --cache-control "public,max-age=31536000,immutable" \
             --exclude "*.html"
 
           # HTML files must not be cached so the browser always fetches the latest
-          aws s3 sync ../frontend/dist/ \
+          aws s3 sync frontend/dist/ \
             s3://${{ secrets.TF_FRONTEND_BUCKET }}/ \
             --delete \
             --cache-control "no-cache,no-store,must-revalidate" \
