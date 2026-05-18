@@ -125,11 +125,11 @@ jobs:
       - name: Install Lambda dependencies into package directory
         run: |
           pip install \
-            -r ../backend/generate_pptx/requirements.txt \
-            -t ../backend/generate_pptx/
+            -r backend/generate_pptx/requirements.txt \
+            -t backend/generate_pptx/
           pip install \
-            -r ../backend/upload_logo/requirements.txt \
-            -t ../backend/upload_logo/
+            -r backend/upload_logo/requirements.txt \
+            -t backend/upload_logo/
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
