@@ -29,6 +29,6 @@ output "generate_pptx_function_name" {
 }
 
 output "upload_logo_function_name" {
-  description = "Name of the upload-logo Lambda function."
+  description = "Name of the upload-logo Lambda function (handles both logo and document uploads)."
   value       = aws_lambda_function.upload_logo.function_name
 }

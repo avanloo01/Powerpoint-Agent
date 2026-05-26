@@ -236,15 +236,17 @@ resource "aws_lambda_function" "upload_logo" {
   role             = aws_iam_role.lambda_exec.arn
   handler          = "handler.handler"
   runtime          = "python3.12"
-  timeout          = 30
-  memory_size      = 128
+  timeout          = 120
+  memory_size      = 256
   tags             = local.common_tags
 
   environment {
     variables = {
-      LOGO_BUCKET       = aws_s3_bucket.storage.id
-      SUPABASE_URL      = var.supabase_url
-      SUPABASE_ANON_KEY = var.supabase_anon_key
+      LOGO_BUCKET               = aws_s3_bucket.storage.id
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_ANON_KEY         = var.supabase_anon_key
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      SUPABASE_SETTINGS_TABLE   = var.supabase_settings_table
     }
   }
 }

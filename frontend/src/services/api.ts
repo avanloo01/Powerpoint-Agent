@@ -6,6 +6,7 @@ const UPLOAD_URL = import.meta.env.VITE_UPLOAD_LOGO_URL || '';
 
 export interface GenerateRequest {
   prompt: string;
+  fileIDs?: string[];
 }
 
 /**
