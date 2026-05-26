@@ -181,6 +181,7 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
 
         body = json.loads(event.get("body") or "{}")
         prompt: str = body.get("prompt", "").strip()
+        file_ids: list[str] = body.get("fileIDs") or []
         api_key: str = (settings.get("api_key") or "").strip()
         primary_color: str = settings.get("primary_color") or "#4f46e5"
         accent_color: str = settings.get("accent_color") or "#f59e0b"
@@ -200,11 +201,20 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
             '"title" (string) and "content" (string with bullet points separated by newlines). '
             "Do not include any other text, markdown, or explanation."
         )
+
+        # When document file IDs are provided, prepend fileid:// references so
+        # Qwen can use the uploaded documents as context for the presentation.
+        if file_ids:
+            file_refs = "".join(f"fileid://{fid}\n" for fid in file_ids)
+            user_content = f"{file_refs}Create a presentation about: {prompt}"
+        else:
+            user_content = f"Create a presentation about: {prompt}"
+
         completion = client.chat.completions.create(
             model=QWEN_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Create a presentation about: {prompt}"},
+                {"role": "user", "content": user_content},
             ],
         )
         raw_content = completion.choices[0].message.content or ""

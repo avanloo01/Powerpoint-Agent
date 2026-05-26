@@ -32,3 +32,13 @@ output "upload_logo_function_name" {
   description = "Name of the upload-logo Lambda function."
   value       = aws_lambda_function.upload_logo.function_name
 }
+
+output "upload_docs_function_url" {
+  description = "Lambda Function URL for upload-docs. Set VITE_UPLOAD_DOCS_URL to this value."
+  value       = aws_lambda_function_url.upload_docs.function_url
+}
+
+output "upload_docs_function_name" {
+  description = "Name of the upload-docs Lambda function."
+  value       = aws_lambda_function.upload_docs.function_name
+}
