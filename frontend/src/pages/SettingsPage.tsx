@@ -235,8 +235,8 @@ const SettingsPage: React.FC = () => {
               <button
                 className="rounded-lg px-8 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: primaryColor,
-                  opacity: email.trim() && password ? 1 : 0.7,
+                  backgroundColor: email.trim() && password ? primaryColor : '#a5b4fc',
+                  cursor: email.trim() && password ? 'pointer' : 'not-allowed',
                 }}
                 onClick={authMode === 'login' ? handleLogin : handleSignUp}
                 disabled={!email.trim() || !password}
