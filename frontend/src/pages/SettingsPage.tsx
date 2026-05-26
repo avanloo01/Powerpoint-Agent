@@ -19,10 +19,11 @@ const SettingsPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
 
   const [apiKey, setApiKey] = useState('');
-  const [primaryColor, setPrimaryColor] = useState('#4f46e5');
-  const [accentColor, setAccentColor] = useState('#f59e0b');
+  const [primaryColor, setPrimaryColor] = useState('#C00000');
+  const [accentColor, setAccentColor] = useState('#A6CAEC');
   const [logoUrl, setLogoUrl] = useState('');
 
   const [dataPreviewUrl, setDataPreviewUrl] = useState<string | null>(null);
@@ -47,16 +48,16 @@ const SettingsPage: React.FC = () => {
 
       if (!loggedIn) {
         setApiKey('');
-        setPrimaryColor('#4f46e5');
-        setAccentColor('#f59e0b');
+        setPrimaryColor('#C00000');
+        setAccentColor('#A6CAEC');
         setLogoUrl('');
         return;
       }
 
       const settings = await getCurrentUserSettings();
       setApiKey(settings?.api_key || '');
-      setPrimaryColor(settings?.primary_color || '#4f46e5');
-      setAccentColor(settings?.accent_color || '#f59e0b');
+      setPrimaryColor(settings?.primary_color || '#C00000');
+      setAccentColor(settings?.accent_color || '#A6CAEC');
       setLogoUrl(settings?.logo_url || '');
     };
 
@@ -231,18 +232,19 @@ const SettingsPage: React.FC = () => {
               />
             </div>
 
-            <div className="mt-4 flex gap-3">
+            <div className="mt-4 flex items-center gap-3">
               <button
-                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
-                onClick={handleLogin}
+                className="btn btn-primary rounded-lg px-6 py-2.5 text-sm"
+                onClick={authMode === 'login' ? handleLogin : handleSignUp}
               >
-                Log In
+                {authMode === 'login' ? 'Log In' : 'Sign Up'}
               </button>
               <button
-                className="rounded-lg bg-teal-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800"
-                onClick={handleSignUp}
+                type="button"
+                className="text-sm underline text-indigo-600"
+                onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
               >
-                Sign Up
+                {authMode === 'login' ? 'Create an account' : 'Have an account? Log in'}
               </button>
             </div>
 

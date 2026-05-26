@@ -227,7 +227,7 @@ presentations_bucket_name = "pptx-agent-presentations-<account-id>"
 ### Optional Variables
 
 ```hcl
-aws_region   = "us-east-1"   # default
+aws_region   = "ap-southeast-1"   # default
 project_name = "pptx-agent"  # used as resource name prefix
 environment  = "prod"
 qwen_model   = "qwen-turbo"

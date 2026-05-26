@@ -27,3 +27,5 @@ terraform/tfplan
 .idea/
 .vscode/
 *.swp
+
+.env*

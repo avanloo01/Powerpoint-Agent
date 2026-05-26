@@ -86,7 +86,7 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
 
         # Public URL of the uploaded logo (bucket must have public-read on this key,
         # or a CloudFront distribution fronting it).
-        region = os.environ.get("AWS_REGION", "us-east-1")
+        region = os.environ.get("AWS_REGION", "ap-southeast-1")
         public_url = (
             f"https://{S3_LOGO_BUCKET}.s3.{region}.amazonaws.com/{logo_key}"
         )

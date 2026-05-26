@@ -10,7 +10,7 @@ const HomePage: React.FC = () => {
   const [error, setError] = useState('');
   const [downloadUrl, setDownloadUrl] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [primaryColor, setPrimaryColor] = useState('#4f46e5');
+  const [primaryColor, setPrimaryColor] = useState('#C00000');
   const [hasApiKey, setHasApiKey] = useState(false);
 
   useEffect(() => {
@@ -23,13 +23,13 @@ const HomePage: React.FC = () => {
 
       if (!loggedIn) {
         setHasApiKey(false);
-        setPrimaryColor('#4f46e5');
+        setPrimaryColor('#C00000');
         return;
       }
 
       const settings = await getCurrentUserSettings();
       setHasApiKey(Boolean(settings?.api_key));
-      setPrimaryColor(settings?.primary_color || '#4f46e5');
+      setPrimaryColor(settings?.primary_color || '#C00000');
     };
 
     void hydrate();
@@ -80,7 +80,7 @@ const HomePage: React.FC = () => {
           onClick={() => navigate('/settings')}
           aria-label="Open settings"
         >
-          {isLoggedIn ? '⚙️ Settings' : '🔐 Login'}
+          {isLoggedIn ? 'Settings' : 'Login'}
         </button>
       </header>
 
@@ -111,7 +111,7 @@ const HomePage: React.FC = () => {
             onClick={handleGenerate}
             disabled={loading}
           >
-            {loading ? '⏳ Generating...' : '✨ Generate Presentation'}
+            {loading ? 'Generating...' : 'Generate Presentation'}
           </button>
 
           {error && (
@@ -135,7 +135,7 @@ const HomePage: React.FC = () => {
 
           {(!isLoggedIn || !hasApiKey) && (
             <p className="mt-3 text-center text-xs text-slate-400">
-              {isLoggedIn ? '💡 Add your Qwen API key in ' : '💡 Log in from '}
+              {isLoggedIn ? 'Add your Qwen API key in ' : 'Log in from '}
               <span
                 className="cursor-pointer underline"
                 style={{ color: primaryColor }}

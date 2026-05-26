@@ -20,3 +20,54 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+:root {
+  --bg: #f6f7fb;
+  --card: #ffffff;
+  --muted: #6b7280;
+  --primary: #4f46e5;
+  --success: #10b981;
+  --danger: #ef4444;
+  --radius: 12px;
+}
+
+body {
+  background: var(--bg);
+  color: #0f172a;
+}
+
+/* Polished utility classes for buttons and form fields */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--primary); color: #fff; box-shadow: 0 6px 18px rgba(79,70,229,0.12); }
+.btn-primary:disabled { background: #a5b4fc; cursor: not-allowed; box-shadow: none; }
+
+input[type="text"], input[type="email"], input[type="password"], textarea {
+  border-radius: 0.5rem;
+  border: 1px solid #e6eef7;
+  padding: 0.6rem 0.9rem;
+  background: var(--card);
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+}
+input:focus, textarea:focus {
+  outline: none;
+  border-color: rgba(79,70,229,0.9);
+  box-shadow: 0 6px 18px rgba(79,70,229,0.08);
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(15,23,42,0.04);
+}

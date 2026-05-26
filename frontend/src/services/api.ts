@@ -2,7 +2,7 @@ import axios from 'axios';
 import { getAccessToken } from './supabase';
 
 const GENERATE_URL = import.meta.env.VITE_GENERATE_URL || '';
-const UPLOAD_LOGO_URL = import.meta.env.VITE_UPLOAD_LOGO_URL || '';
+const UPLOAD_URL = import.meta.env.VITE_UPLOAD_LOGO_URL || '';
 
 export interface GenerateRequest {
   prompt: string;
@@ -15,7 +15,7 @@ export async function generatePresentation(req: GenerateRequest): Promise<string
   const token = await getAccessToken();
   const response = await axios.post<{ downloadUrl: string }>(
     GENERATE_URL,
-    { prompt: req.prompt },
+    { prompt: req.prompt, fileIDs: req.fileIDs },
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -34,7 +34,7 @@ export async function getLogoUploadUrl(
 ): Promise<{ uploadUrl: string; publicUrl: string }> {
   const token = await getAccessToken();
   const response = await axios.post<{ uploadUrl: string; publicUrl: string }>(
-    UPLOAD_LOGO_URL,
+    UPLOAD_URL,
     { fileType },
     {
       headers: {
@@ -43,4 +43,21 @@ export async function getLogoUploadUrl(
     }
   );
   return response.data;
+}
+
+export async function uploadDocs(files: File[]): Promise<string[]> {
+  const token = await getAccessToken();
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file, file.name));
+
+  const response = await axios.post<{fileIDs: string[]}>(
+    UPLOAD_URL,
+    formData,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+  return response.data.fileIDs;
 }
