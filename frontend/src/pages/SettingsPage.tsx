@@ -100,6 +100,10 @@ const SettingsPage: React.FC = () => {
   const handleLogin = async () => {
     setAuthStatus('');
     setAuthError('');
+    if (!email.trim() || !password) {
+      setAuthError('Please enter both email and password.');
+      return;
+    }
     try {
       const { error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
@@ -116,6 +120,10 @@ const SettingsPage: React.FC = () => {
   const handleSignUp = async () => {
     setAuthStatus('');
     setAuthError('');
+    if (!email.trim() || !password) {
+      setAuthError('Please enter both email and password.');
+      return;
+    }
     try {
       const { error } = await supabase.auth.signUp({
         email: email.trim(),
@@ -233,13 +241,9 @@ const SettingsPage: React.FC = () => {
 
             <div className="mt-5 flex flex-col items-center gap-3">
               <button
-                className="rounded-lg px-8 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: email.trim() && password ? primaryColor : '#a5b4fc',
-                  cursor: email.trim() && password ? 'pointer' : 'not-allowed',
-                }}
+                className="rounded-lg px-8 py-2.5 text-sm font-semibold text-white transition"
+                style={{ backgroundColor: primaryColor }}
                 onClick={authMode === 'login' ? handleLogin : handleSignUp}
-                disabled={!email.trim() || !password}
               >
                 {authMode === 'login' ? 'Log In' : 'Sign Up'}
               </button>
