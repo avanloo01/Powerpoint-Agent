@@ -236,15 +236,17 @@ resource "aws_lambda_function" "upload_logo" {
   role             = aws_iam_role.lambda_exec.arn
   handler          = "handler.handler"
   runtime          = "python3.12"
-  timeout          = 30
-  memory_size      = 128
+  timeout          = 120
+  memory_size      = 256
   tags             = local.common_tags
 
   environment {
     variables = {
-      LOGO_BUCKET       = aws_s3_bucket.storage.id
-      SUPABASE_URL      = var.supabase_url
-      SUPABASE_ANON_KEY = var.supabase_anon_key
+      LOGO_BUCKET               = aws_s3_bucket.storage.id
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_ANON_KEY         = var.supabase_anon_key
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      SUPABASE_SETTINGS_TABLE   = var.supabase_settings_table
     }
   }
 }
@@ -274,56 +276,6 @@ resource "aws_lambda_function_url" "generate_pptx" {
 
 resource "aws_lambda_function_url" "upload_logo" {
   function_name      = aws_lambda_function.upload_logo.function_name
-  authorization_type = "NONE"
-
-  cors {
-    allow_credentials = false
-    allow_headers     = ["content-type", "authorization"]
-    allow_methods     = ["POST"]
-    allow_origins     = ["*"]
-    max_age           = 300
-  }
-}
-
-# ─────────────────────────────────────────────
-# Lambda — upload_docs
-# ─────────────────────────────────────────────
-
-data "archive_file" "upload_docs" {
-  type        = "zip"
-  source_dir  = "${path.module}/../backend/upload_docs"
-  output_path = "${path.module}/.terraform/lambda_zips/upload_docs.zip"
-}
-
-resource "aws_lambda_function" "upload_docs" {
-  function_name    = "${var.project_name}-upload-docs"
-  filename         = data.archive_file.upload_docs.output_path
-  source_code_hash = data.archive_file.upload_docs.output_base64sha256
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "handler.handler"
-  runtime          = "python3.12"
-  timeout          = 120
-  memory_size      = 256
-  tags             = local.common_tags
-
-  environment {
-    variables = {
-      SUPABASE_URL              = var.supabase_url
-      SUPABASE_ANON_KEY         = var.supabase_anon_key
-      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
-      SUPABASE_SETTINGS_TABLE   = var.supabase_settings_table
-    }
-  }
-}
-
-resource "aws_cloudwatch_log_group" "upload_docs" {
-  name              = "/aws/lambda/${aws_lambda_function.upload_docs.function_name}"
-  retention_in_days = 14
-  tags              = local.common_tags
-}
-
-resource "aws_lambda_function_url" "upload_docs" {
-  function_name      = aws_lambda_function.upload_docs.function_name
   authorization_type = "NONE"
 
   cors {

@@ -3,7 +3,6 @@ import { getAccessToken } from './supabase';
 
 const GENERATE_URL = import.meta.env.VITE_GENERATE_URL || '';
 const UPLOAD_URL = import.meta.env.VITE_UPLOAD_LOGO_URL || '';
-const UPLOAD_DOCS_URL = import.meta.env.VITE_UPLOAD_DOCS_URL || '';
 
 export interface GenerateRequest {
   prompt: string;
@@ -53,7 +52,7 @@ export async function uploadDocs(files: File[]): Promise<string[]> {
   files.forEach((file) => formData.append("files", file, file.name));
 
   const response = await axios.post<{fileIDs: string[]}>(
-    UPLOAD_DOCS_URL,
+    UPLOAD_URL,
     formData,
     {
       headers: {
