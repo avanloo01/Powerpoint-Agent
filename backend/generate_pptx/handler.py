@@ -16,7 +16,7 @@ import boto3
 from openai import OpenAI
 from pptx import Presentation
 from pptx.dml.color import RGBColor
-from pptx.util import Inches, Pt
+# from pptx.util import Inches, Pt
 
 S3_OUTPUT_BUCKET = os.environ.get("OUTPUT_BUCKET", "")
 QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"

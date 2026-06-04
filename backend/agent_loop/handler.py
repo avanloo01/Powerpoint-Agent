@@ -11,8 +11,8 @@ import math
 import os
 import re
 import textwrap
-import uuid
-from urllib import error as urlerror
+# import uuid
+# from urllib import error as urlerror
 from urllib import request as urlrequest
 
 import boto3
