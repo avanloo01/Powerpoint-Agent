@@ -29,6 +29,7 @@ const SettingsPage: React.FC = () => {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
 
+  const [authLoading, setAuthLoading] = useState(false);
   const [authStatus, setAuthStatus] = useState('');
   const [authError, setAuthError] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
@@ -99,6 +100,7 @@ const SettingsPage: React.FC = () => {
   const handleLogin = async () => {
     setAuthStatus('');
     setAuthError('');
+    setAuthLoading(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
@@ -109,12 +111,15 @@ const SettingsPage: React.FC = () => {
       setPassword('');
     } catch (err: unknown) {
       setAuthError(err instanceof Error ? err.message : 'Unable to log in.');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
   const handleSignUp = async () => {
     setAuthStatus('');
     setAuthError('');
+    setAuthLoading(true);
     try {
       const { error } = await supabase.auth.signUp({
         email: email.trim(),
@@ -125,6 +130,8 @@ const SettingsPage: React.FC = () => {
       setPassword('');
     } catch (err: unknown) {
       setAuthError(err instanceof Error ? err.message : 'Unable to create account.');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -213,19 +220,21 @@ const SettingsPage: React.FC = () => {
             <div className="flex flex-col gap-3">
               <input
                 type="email"
-                className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-slate-400"
+                className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-slate-400 disabled:bg-slate-100 disabled:text-slate-500"
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                disabled={authLoading}
                 aria-label="Email"
                 autoComplete="email"
               />
               <input
                 type="password"
-                className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-slate-400"
+                className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-slate-400 disabled:bg-slate-100 disabled:text-slate-500"
                 placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={authLoading}
                 aria-label="Password"
                 autoComplete="current-password"
               />
@@ -233,16 +242,18 @@ const SettingsPage: React.FC = () => {
 
             <div className="mt-4 flex gap-3">
               <button
-                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-indigo-300 hover:bg-indigo-700"
                 onClick={handleLogin}
+                disabled={authLoading}
               >
-                Log In
+                {authLoading ? '⏳ Logging in...' : 'Log In'}
               </button>
               <button
-                className="rounded-lg bg-teal-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800"
+                className="rounded-lg bg-teal-700 px-6 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-teal-500 hover:bg-teal-800"
                 onClick={handleSignUp}
+                disabled={authLoading}
               >
-                Sign Up
+                {authLoading ? '⏳ Signing up...' : 'Sign Up'}
               </button>
             </div>
 
