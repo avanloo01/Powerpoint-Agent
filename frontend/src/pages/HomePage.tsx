@@ -1,26 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { generatePresentation, uploadDocs } from '../services/api';
+import { generatePresentation } from '../services/api';
 import { getCurrentUserSettings, supabase } from '../services/supabase';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const docInputRef = useRef<HTMLInputElement>(null);
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [downloadUrl, setDownloadUrl] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [primaryColor, setPrimaryColor] = useState('#C00000');
+  const [primaryColor, setPrimaryColor] = useState('#4f46e5');
   const [hasApiKey, setHasApiKey] = useState(false);
-
-  // Document upload state
-  const [docFiles, setDocFiles] = useState<File[]>([]);
-  const [docFileIDs, setDocFileIDs] = useState<string[]>([]);
-  const [uploadingDocs, setUploadingDocs] = useState(false);
-  const [docUploadError, setDocUploadError] = useState('');
-  const [docUploadStatus, setDocUploadStatus] = useState('');
-  const [docDragging, setDocDragging] = useState(false);
 
   useEffect(() => {
     const hydrate = async () => {
@@ -32,13 +23,13 @@ const HomePage: React.FC = () => {
 
       if (!loggedIn) {
         setHasApiKey(false);
-        setPrimaryColor('#C00000');
+        setPrimaryColor('#4f46e5');
         return;
       }
 
       const settings = await getCurrentUserSettings();
       setHasApiKey(Boolean(settings?.api_key));
-      setPrimaryColor(settings?.primary_color || '#C00000');
+      setPrimaryColor(settings?.primary_color || '#4f46e5');
     };
 
     void hydrate();
@@ -51,55 +42,6 @@ const HomePage: React.FC = () => {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const handleDocFilesChange = async (newFiles: File[]) => {
-    if (!newFiles.length) return;
-
-    const validFiles = newFiles.filter((f) => {
-      const ext = f.name.split('.').pop()?.toLowerCase() || '';
-      return ['pdf', 'doc', 'docx', 'txt', 'md', 'csv'].includes(ext);
-    });
-
-    if (!validFiles.length) {
-      setDocUploadError('Please upload PDF, Word, TXT, Markdown, or CSV files.');
-      return;
-    }
-
-    setDocUploadError('');
-    setDocFiles(validFiles);
-    setDocFileIDs([]);
-    setDocUploadStatus('');
-    setUploadingDocs(true);
-
-    try {
-      setDocUploadStatus('Uploading documents…');
-      const ids = await uploadDocs(validFiles);
-      setDocFileIDs(ids);
-      setDocUploadStatus(`✅ ${ids.length} document${ids.length !== 1 ? 's' : ''} uploaded`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Document upload failed.';
-      setDocUploadError(msg);
-      setDocUploadStatus('');
-      setDocFiles([]);
-    } finally {
-      setUploadingDocs(false);
-    }
-  };
-
-  const handleDocDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDocDragging(false);
-    const dropped = Array.from(e.dataTransfer.files);
-    void handleDocFilesChange(dropped);
-  };
-
-  const handleRemoveDocs = () => {
-    setDocFiles([]);
-    setDocFileIDs([]);
-    setDocUploadStatus('');
-    setDocUploadError('');
-    if (docInputRef.current) docInputRef.current.value = '';
-  };
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -120,7 +62,7 @@ const HomePage: React.FC = () => {
     setLoading(true);
 
     try {
-      const url = await generatePresentation({ prompt, fileIDs: docFileIDs.length ? docFileIDs : undefined });
+      const url = await generatePresentation({ prompt });
       setDownloadUrl(url);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
@@ -138,7 +80,7 @@ const HomePage: React.FC = () => {
           onClick={() => navigate('/settings')}
           aria-label="Open settings"
         >
-          {isLoggedIn ? 'Settings' : 'Login'}
+          {isLoggedIn ? '⚙️ Settings' : '🔐 Login'}
         </button>
       </header>
 
@@ -160,78 +102,16 @@ const HomePage: React.FC = () => {
             aria-label="Presentation prompt"
           />
 
-          {/* Document upload */}
-          <div className="mt-4">
-            <p className="mb-1.5 text-sm font-medium text-slate-700">
-              Reference documents <span className="font-normal text-slate-400">(optional)</span>
-            </p>
-            <div
-              className={[
-                'cursor-pointer rounded-xl border-2 border-dashed border-slate-300 px-4 py-4 text-center transition',
-                docDragging ? 'border-indigo-500 bg-indigo-50' : '',
-                uploadingDocs ? 'opacity-60 cursor-not-allowed' : '',
-              ].join(' ')}
-              onClick={() => !uploadingDocs && docInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setDocDragging(true); }}
-              onDragLeave={() => setDocDragging(false)}
-              onDrop={handleDocDrop}
-              role="button"
-              tabIndex={0}
-              aria-label="Upload reference documents"
-              onKeyDown={(e) => e.key === 'Enter' && !uploadingDocs && docInputRef.current?.click()}
-            >
-              {docFiles.length > 0 ? (
-                <ul className="space-y-0.5 text-left text-sm text-slate-600">
-                  {docFiles.map((f) => (
-                    <li key={f.name} className="truncate">📄 {f.name}</li>
-                  ))}
-                </ul>
-              ) : (
-                <>
-                  <p className="text-sm text-slate-500">Click or drag and drop documents here</p>
-                  <p className="mt-0.5 text-xs text-slate-400">PDF, DOCX, TXT, MD, CSV supported</p>
-                </>
-              )}
-              <input
-                ref={docInputRef}
-                type="file"
-                accept=".pdf,.doc,.docx,.txt,.md,.csv"
-                multiple
-                style={{ display: 'none' }}
-                onChange={(e) => void handleDocFilesChange(Array.from(e.target.files || []))}
-              />
-            </div>
-
-            {uploadingDocs && (
-              <p className="mt-1.5 text-xs text-slate-500">⏳ {docUploadStatus}</p>
-            )}
-            {!uploadingDocs && docUploadStatus && (
-              <div className="mt-1.5 flex items-center justify-between">
-                <p className="text-xs text-emerald-600">{docUploadStatus}</p>
-                <button
-                  type="button"
-                  className="ml-3 text-xs text-slate-400 underline hover:text-slate-600"
-                  onClick={handleRemoveDocs}
-                >
-                  Remove
-                </button>
-              </div>
-            )}
-            {docUploadError && (
-              <p className="mt-1.5 text-xs text-red-500">{docUploadError}</p>
-            )}
-          </div>
-
           <button
             className="mt-4 w-full rounded-xl px-4 py-3 text-base font-semibold text-white transition disabled:cursor-not-allowed"
             style={{
-              backgroundColor: loading || uploadingDocs ? '#a5b4fc' : primaryColor,
-              cursor: loading || uploadingDocs ? 'not-allowed' : 'pointer',
+              backgroundColor: loading ? '#a5b4fc' : primaryColor,
+              cursor: loading ? 'not-allowed' : 'pointer',
             }}
             onClick={handleGenerate}
-            disabled={loading || uploadingDocs}
+            disabled={loading}
           >
-            {loading ? 'Generating...' : uploadingDocs ? 'Waiting for upload…' : 'Generate Presentation'}
+            {loading ? '⏳ Generating...' : '✨ Generate Presentation'}
           </button>
 
           {error && (
@@ -255,7 +135,7 @@ const HomePage: React.FC = () => {
 
           {(!isLoggedIn || !hasApiKey) && (
             <p className="mt-3 text-center text-xs text-slate-400">
-              {isLoggedIn ? 'Add your Qwen API key in ' : 'Log in from '}
+              {isLoggedIn ? '💡 Add your Qwen API key in ' : '💡 Log in from '}
               <span
                 className="cursor-pointer underline"
                 style={{ color: primaryColor }}

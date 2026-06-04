@@ -36,9 +36,9 @@ resource "aws_s3_bucket" "frontend" {
 resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
-  block_public_acls       = true
+  block_public_acls       = false
   block_public_policy     = false
-  ignore_public_acls      = true
+  ignore_public_acls      = false
   restrict_public_buckets = false
 }
 
@@ -61,8 +61,24 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
   }
 }
 
+resource "aws_s3_bucket_policy" "frontend_public_read" {
+  bucket = aws_s3_bucket.frontend.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.frontend.arn}/*"
+      }
+    ]
+  })
+}
+
 # ─────────────────────────────────────────────
-# S3 — Combined Asset Storage (logos + presentations)
+# S3 — Shared Storage (logos + presentations)
 # ─────────────────────────────────────────────
 
 resource "aws_s3_bucket" "storage" {
@@ -73,11 +89,9 @@ resource "aws_s3_bucket" "storage" {
 resource "aws_s3_bucket_public_access_block" "storage" {
   bucket = aws_s3_bucket.storage.id
 
-  # ACL-based public access is never used
-  block_public_acls  = true
-  ignore_public_acls = true
-  # Bucket policy grants public read only for logo/* prefix
+  block_public_acls       = false
   block_public_policy     = false
+  ignore_public_acls      = false
   restrict_public_buckets = false
 }
 
@@ -93,7 +107,31 @@ resource "aws_s3_bucket_cors_configuration" "storage" {
   }
 }
 
-resource "aws_s3_bucket_lifecycle_configuration" "storage" {
+resource "aws_s3_bucket_policy" "storage_public_read_logos" {
+  bucket = aws_s3_bucket.storage.id
+  depends_on = [
+    aws_s3_bucket_public_access_block.storage,
+  ]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.storage.arn}/logo/*"
+      }
+    ]
+  })
+}
+
+# ─────────────────────────────────────────────
+# S3 — Generated Presentations lifecycle
+# ─────────────────────────────────────────────
+
+resource "aws_s3_bucket_lifecycle_configuration" "presentations" {
   bucket = aws_s3_bucket.storage.id
 
   rule {
@@ -108,25 +146,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "storage" {
       prefix = "presentations/"
     }
   }
-}
-
-resource "aws_s3_bucket_policy" "storage_logo_public_read" {
-  bucket = aws_s3_bucket.storage.id
-
-  depends_on = [aws_s3_bucket_public_access_block.storage]
-  
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "PublicReadLogos"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.storage.arn}/logo/*"
-      }
-    ]
-  })
 }
 
 # ─────────────────────────────────────────────
@@ -165,16 +184,12 @@ resource "aws_iam_role_policy" "lambda_s3" {
         Effect = "Allow"
         Action = [
           "s3:PutObject",
-          "s3:GetObject"
-        ],
+          "s3:GetObject",
+          "s3:GeneratePresignedUrl"
+        ]
         Resource = [
           "${aws_s3_bucket.storage.arn}/*"
         ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["s3:ListBucket"]
-        Resource = [aws_s3_bucket.storage.arn]
       }
     ]
   })
@@ -236,17 +251,15 @@ resource "aws_lambda_function" "upload_logo" {
   role             = aws_iam_role.lambda_exec.arn
   handler          = "handler.handler"
   runtime          = "python3.12"
-  timeout          = 120
-  memory_size      = 256
+  timeout          = 30
+  memory_size      = 128
   tags             = local.common_tags
 
   environment {
     variables = {
-      LOGO_BUCKET               = aws_s3_bucket.storage.id
-      SUPABASE_URL              = var.supabase_url
-      SUPABASE_ANON_KEY         = var.supabase_anon_key
-      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
-      SUPABASE_SETTINGS_TABLE   = var.supabase_settings_table
+      LOGO_BUCKET       = aws_s3_bucket.storage.id
+      SUPABASE_URL      = var.supabase_url
+      SUPABASE_ANON_KEY = var.supabase_anon_key
     }
   }
 }
@@ -258,7 +271,98 @@ resource "aws_cloudwatch_log_group" "upload_logo" {
 }
 
 # ─────────────────────────────────────────────
-# Lambda Function URLs (replaces API Gateway)
+# Lambda — agent_loop
+# ─────────────────────────────────────────────
+
+data "archive_file" "agent_loop" {
+  type        = "zip"
+  source_dir  = "${path.module}/../backend/agent_loop"
+  output_path = "${path.module}/.terraform/lambda_zips/agent_loop.zip"
+}
+
+resource "aws_lambda_function" "agent_loop" {
+  function_name    = "${var.project_name}-agent-loop"
+  filename         = data.archive_file.agent_loop.output_path
+  source_code_hash = data.archive_file.agent_loop.output_base64sha256
+  role             = aws_iam_role.lambda_exec.arn
+  handler          = "handler.handler"
+  runtime          = "python3.12"
+  timeout          = 300
+  memory_size      = 512
+  tags             = local.common_tags
+
+  environment {
+    variables = {
+      OUTPUT_BUCKET             = aws_s3_bucket.storage.id
+      QWEN_MODEL                = var.qwen_model
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+    }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "agent_loop" {
+  name              = "/aws/lambda/${aws_lambda_function.agent_loop.function_name}"
+  retention_in_days = 14
+  tags              = local.common_tags
+}
+
+resource "aws_iam_role_policy" "lambda_invoke_agent_loop" {
+  name = "${var.project_name}-lambda-invoke-agent-loop"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunction"]
+        Resource = [aws_lambda_function.agent_loop.arn]
+      }
+    ]
+  })
+}
+
+# ─────────────────────────────────────────────
+# Lambda — start_job
+# ─────────────────────────────────────────────
+
+data "archive_file" "start_job" {
+  type        = "zip"
+  source_dir  = "${path.module}/../backend/start_job"
+  output_path = "${path.module}/.terraform/lambda_zips/start_job.zip"
+}
+
+resource "aws_lambda_function" "start_job" {
+  function_name    = "${var.project_name}-start-job"
+  filename         = data.archive_file.start_job.output_path
+  source_code_hash = data.archive_file.start_job.output_base64sha256
+  role             = aws_iam_role.lambda_exec.arn
+  handler          = "handler.handler"
+  runtime          = "python3.12"
+  timeout          = 30
+  memory_size      = 128
+  tags             = local.common_tags
+
+  environment {
+    variables = {
+      SUPABASE_URL             = var.supabase_url
+      SUPABASE_ANON_KEY        = var.supabase_anon_key
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      SUPABASE_SETTINGS_TABLE  = var.supabase_settings_table
+      AGENT_LOOP_FUNCTION_NAME = aws_lambda_function.agent_loop.function_name
+    }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "start_job" {
+  name              = "/aws/lambda/${aws_lambda_function.start_job.function_name}"
+  retention_in_days = 14
+  tags              = local.common_tags
+}
+
+# ─────────────────────────────────────────────
+# Lambda Function URLs (no API Gateway)
 # ─────────────────────────────────────────────
 
 resource "aws_lambda_function_url" "generate_pptx" {
@@ -266,11 +370,10 @@ resource "aws_lambda_function_url" "generate_pptx" {
   authorization_type = "NONE"
 
   cors {
-    allow_credentials = false
-    allow_headers     = ["content-type", "authorization"]
-    allow_methods     = ["POST"]
-    allow_origins     = ["*"]
-    max_age           = 300
+    allow_origins = ["*"]
+    allow_methods = ["POST"]
+    allow_headers = ["content-type", "authorization"]
+    max_age       = 300
   }
 }
 
@@ -279,32 +382,23 @@ resource "aws_lambda_function_url" "upload_logo" {
   authorization_type = "NONE"
 
   cors {
-    allow_credentials = false
-    allow_headers     = ["content-type", "authorization"]
-    allow_methods     = ["POST"]
-    allow_origins     = ["*"]
-    max_age           = 300
+    allow_origins = ["*"]
+    allow_methods = ["POST"]
+    allow_headers = ["content-type", "authorization"]
+    max_age       = 300
   }
 }
 
-# Grant public read access so Cloudflare can proxy the static website
-resource "aws_s3_bucket_policy" "frontend_public_read" {
-  bucket = aws_s3_bucket.frontend.id
+resource "aws_lambda_function_url" "start_job" {
+  function_name      = aws_lambda_function.start_job.function_name
+  authorization_type = "NONE"
 
-  depends_on = [aws_s3_bucket_public_access_block.frontend]
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "PublicReadGetObject"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.frontend.arn}/*"
-      }
-    ]
-  })
+  cors {
+    allow_origins = ["*"]
+    allow_methods = ["POST"]
+    allow_headers = ["content-type", "authorization"]
+    max_age       = 300
+  }
 }
 
 # ─────────────────────────────────────────────

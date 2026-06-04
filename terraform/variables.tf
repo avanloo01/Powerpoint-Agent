@@ -23,7 +23,7 @@ variable "frontend_bucket_name" {
 }
 
 variable "storage_bucket_name" {
-  description = "Globally unique S3 bucket name for user-uploaded logos and generated PPTX files."
+  description = "Globally unique S3 bucket name shared by user-uploaded logos and generated PPTX files."
   type        = string
   # Override this with a unique name, e.g. "pptx-agent-storage-<your-account-id>"
 }

@@ -19,11 +19,10 @@ const SettingsPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
 
   const [apiKey, setApiKey] = useState('');
-  const [primaryColor, setPrimaryColor] = useState('#C00000');
-  const [accentColor, setAccentColor] = useState('#A6CAEC');
+  const [primaryColor, setPrimaryColor] = useState('#4f46e5');
+  const [accentColor, setAccentColor] = useState('#f59e0b');
   const [logoUrl, setLogoUrl] = useState('');
 
   const [dataPreviewUrl, setDataPreviewUrl] = useState<string | null>(null);
@@ -48,16 +47,16 @@ const SettingsPage: React.FC = () => {
 
       if (!loggedIn) {
         setApiKey('');
-        setPrimaryColor('#C00000');
-        setAccentColor('#A6CAEC');
+        setPrimaryColor('#4f46e5');
+        setAccentColor('#f59e0b');
         setLogoUrl('');
         return;
       }
 
       const settings = await getCurrentUserSettings();
       setApiKey(settings?.api_key || '');
-      setPrimaryColor(settings?.primary_color || '#C00000');
-      setAccentColor(settings?.accent_color || '#A6CAEC');
+      setPrimaryColor(settings?.primary_color || '#4f46e5');
+      setAccentColor(settings?.accent_color || '#f59e0b');
       setLogoUrl(settings?.logo_url || '');
     };
 
@@ -100,10 +99,6 @@ const SettingsPage: React.FC = () => {
   const handleLogin = async () => {
     setAuthStatus('');
     setAuthError('');
-    if (!email.trim() || !password) {
-      setAuthError('Please enter both email and password.');
-      return;
-    }
     try {
       const { error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
@@ -120,10 +115,6 @@ const SettingsPage: React.FC = () => {
   const handleSignUp = async () => {
     setAuthStatus('');
     setAuthError('');
-    if (!email.trim() || !password) {
-      setAuthError('Please enter both email and password.');
-      return;
-    }
     try {
       const { error } = await supabase.auth.signUp({
         email: email.trim(),
@@ -201,7 +192,7 @@ const SettingsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      <header className="flex items-center bg-white px-6 py-4 shadow-sm">
+      <header className="flex items-center gap-3 bg-white px-6 py-4 shadow-sm">
         <button
           className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
           onClick={() => navigate('/')}
@@ -209,6 +200,7 @@ const SettingsPage: React.FC = () => {
         >
           Back
         </button>
+        <h1 className="text-lg font-semibold text-slate-900">{isLoggedIn ? 'Settings' : 'Login'}</h1>
       </header>
 
       <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-10">
@@ -239,21 +231,18 @@ const SettingsPage: React.FC = () => {
               />
             </div>
 
-            <div className="mt-5 flex flex-col items-center gap-3">
+            <div className="mt-4 flex gap-3">
               <button
-                className="rounded-lg px-8 py-2.5 text-sm font-semibold text-white transition"
-                style={{ backgroundColor: primaryColor }}
-                onClick={authMode === 'login' ? handleLogin : handleSignUp}
+                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                onClick={handleLogin}
               >
-                {authMode === 'login' ? 'Log In' : 'Sign Up'}
+                Log In
               </button>
               <button
-                type="button"
-                className="text-sm underline"
-                style={{ color: primaryColor }}
-                onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')}
+                className="rounded-lg bg-teal-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-800"
+                onClick={handleSignUp}
               >
-                {authMode === 'login' ? 'Create an account' : 'Have an account? Log in'}
+                Sign Up
               </button>
             </div>
 
@@ -292,9 +281,8 @@ const SettingsPage: React.FC = () => {
               <div
                 className={[
                   'cursor-pointer rounded-xl border-2 border-dashed border-slate-300 p-6 text-center transition',
-                  dragging ? 'bg-white' : '',
+                  dragging ? 'border-indigo-500 bg-indigo-50' : '',
                 ].join(' ')}
-                style={dragging ? { borderColor: primaryColor } : undefined}
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -323,10 +311,7 @@ const SettingsPage: React.FC = () => {
               </div>
 
               <button
-                className="mt-3 rounded-lg px-6 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: logoFile ? primaryColor : '#cbd5e1',
-                }}
+                className="mt-3 rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
                 onClick={handleUploadLogo}
                 disabled={!logoFile}
               >
@@ -410,8 +395,7 @@ const SettingsPage: React.FC = () => {
               <h2 className="mb-1 text-base font-semibold text-slate-900">Account</h2>
               <p className="mb-4 text-sm text-slate-500">Save your preferences or log out from this device.</p>
               <button
-                className="rounded-lg px-6 py-2.5 text-sm font-semibold text-white transition"
-                style={{ backgroundColor: primaryColor }}
+                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
                 onClick={handleSaveSettings}
               >
                 Save Settings

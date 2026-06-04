@@ -200,16 +200,18 @@ All resources live in `terraform/main.tf`. Run from the `terraform/` directory.
 
 | Resource | Type | Purpose |
 |---|---|---|
-| `aws_s3_bucket.frontend` | S3 | React build files |
-| `aws_s3_bucket.logos` | S3 | User-uploaded logos (public read) |
-| `aws_s3_bucket.presentations` | S3 | Generated PPTX files (private, 7-day TTL) |
-| `aws_cloudfront_distribution.frontend` | CloudFront | HTTPS CDN for the React app |
-| `aws_cloudfront_origin_access_control.frontend` | CF OAC | Restricts S3 access to CF only |
-| `aws_apigatewayv2_api.main` | API GW HTTP API | Routes to Lambda functions |
-| `aws_lambda_function.generate_pptx` | Lambda | Generates presentations |
-| `aws_lambda_function.upload_logo` | Lambda | Returns presigned upload URLs |
+| `aws_s3_bucket.frontend` | S3 | Frontend static files |
+| `aws_s3_bucket.storage` | S3 | Shared storage for logos (`logo/`) and presentations (`presentations/`) |
+| `aws_s3_bucket_lifecycle_configuration.presentations` | S3 Lifecycle | Expires `presentations/` objects after 7 days |
+| `aws_lambda_function_url.generate_pptx` | Lambda URL | Direct HTTPS endpoint for sync generation |
+| `aws_lambda_function_url.upload_logo` | Lambda URL | Direct HTTPS endpoint for logo upload URL creation |
+| `aws_lambda_function_url.start_job` | Lambda URL | Direct HTTPS endpoint for async job creation |
+| `aws_lambda_function.generate_pptx` | Lambda | Synchronous generation endpoint |
+| `aws_lambda_function.start_job` | Lambda | Creates async job record and triggers agent loop |
+| `aws_lambda_function.agent_loop` | Lambda | Async multi-stage generation loop |
+| `aws_lambda_function.upload_logo` | Lambda | Returns presigned upload URL under `logo/` |
 | `aws_iam_role.lambda_exec` | IAM Role | Lambda execution role |
-| `aws_iam_role_policy.lambda_s3` | IAM Policy | S3 read/write for Lambdas |
+| `aws_iam_role_policy.lambda_s3` | IAM Policy | Shared-bucket read/write for Lambdas |
 | `aws_cloudwatch_log_group.*` | CloudWatch | Lambda log retention (14 days) |
 
 ### Required Variables
@@ -217,9 +219,8 @@ All resources live in `terraform/main.tf`. Run from the `terraform/` directory.
 Set these in a `terraform.tfvars` file or via `-var` flags:
 
 ```hcl
-frontend_bucket_name      = "pptx-agent-frontend-<account-id>"
-logos_bucket_name         = "pptx-agent-logos-<account-id>"
-presentations_bucket_name = "pptx-agent-presentations-<account-id>"
+frontend_bucket_name = "pptx-agent-frontend-<account-id>"
+storage_bucket_name  = "pptx-agent-storage-<account-id>"
 ```
 
 > **Tip:** Bucket names must be globally unique. Appending your AWS account ID is a common pattern.
@@ -238,12 +239,15 @@ qwen_model   = "qwen-turbo"
 After `terraform apply`:
 
 ```
-cloudfront_url        = "https://d1xxxx.cloudfront.net"   ← app URL
-api_gateway_url       = "https://xxxx.execute-api.us-east-1.amazonaws.com"
-frontend_bucket_name  = "pptx-agent-frontend-xxxx"
+generate_pptx_function_url = "https://xxxx.lambda-url.ap-southeast-1.on.aws/"
+upload_logo_function_url   = "https://yyyy.lambda-url.ap-southeast-1.on.aws/"
+start_job_function_url     = "https://zzzz.lambda-url.ap-southeast-1.on.aws/"
+frontend_bucket_name    = "<frontend-bucket>"
+storage_bucket_name     = "<shared-storage-bucket>"
+agent_loop_function_name = "pptx-agent-agent-loop"
 ```
 
-Set `REACT_APP_API_URL` (GitHub secret / `.env.local`) to the `api_gateway_url` value before the next build.
+Use these Function URL outputs directly in frontend env vars (`VITE_GENERATE_URL`, `VITE_UPLOAD_LOGO_URL`, `VITE_START_JOB_URL`).
 
 ---
 
@@ -256,28 +260,28 @@ File: `.github/workflows/ci-cd.yml`
 ```
 push/PR to main
      │
-     ├─ backend-test        (always)  pytest + ruff lint
-     ├─ frontend-build      (always)  npm ci → npm test → npm build
+     ├─ backend-test    (always)  pytest + ruff lint
+     ├─ frontend-build  (always)  npm ci → npm test → npm build
      │
-     ├─ terraform-plan      (PR only) terraform init → validate → plan
-     │
-     └─ deploy              (main push only, after backend-test + frontend-build)
-            ├─ pip install Lambda deps into source dirs
-            ├─ terraform apply
-            ├─ aws s3 sync (build → frontend bucket)
-            └─ CloudFront invalidation (/*  )
+     └─ terraform-plan  (PR only) terraform init → validate → plan
+
+Terraform apply is intentionally manual (not executed by CI).
 ```
 
 ### Required GitHub Secrets
 
 | Secret | Value |
 |---|---|
-| `AWS_ACCESS_KEY_ID` | IAM user / OIDC role access key |
-| `AWS_SECRET_ACCESS_KEY` | Corresponding secret key |
-| `REACT_APP_API_URL` | API Gateway base URL (from Terraform output) |
+| `AWS_ACCESS_KEY_ID` | IAM access key |
+| `AWS_SECRET_ACCESS_KEY` | IAM secret key |
+| `GENERATE_URL` | Lambda generate URL (`VITE_GENERATE_URL`) |
+| `UPLOAD_LOGO_URL` | Lambda upload-logo URL (`VITE_UPLOAD_LOGO_URL`) |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (Terraform var) |
+| `SUPABASE_SETTINGS_TABLE` | Supabase settings table name (usually `user_settings`) |
 | `TF_FRONTEND_BUCKET` | Frontend S3 bucket name |
-| `TF_LOGOS_BUCKET` | Logos S3 bucket name |
-| `TF_PRESENTATIONS_BUCKET` | Presentations S3 bucket name |
+| `TF_STORAGE_BUCKET` | Shared storage bucket name |
 
 > **Recommended:** Replace long-lived IAM keys with GitHub OIDC for AWS. See [AWS docs](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html).
 
@@ -287,13 +291,17 @@ push/PR to main
 
 | Scope | Key | Where set |
 |---|---|---|
-| Frontend build | `REACT_APP_API_URL` | GitHub secret / `.env.local` |
-| Lambda | `OUTPUT_BUCKET` | Terraform (env var) |
-| Lambda | `LOGO_BUCKET` | Terraform (env var) |
-| Lambda | `QWEN_MODEL` | Terraform (env var) |
-| CI/CD | `AWS_ACCESS_KEY_ID` | GitHub secret |
-| CI/CD | `AWS_SECRET_ACCESS_KEY` | GitHub secret |
-| CI/CD | `TF_*_BUCKET` | GitHub secrets |
+| Frontend build | `VITE_GENERATE_URL` | GitHub secret `GENERATE_URL` / `.env` |
+| Frontend build | `VITE_UPLOAD_LOGO_URL` | GitHub secret `UPLOAD_LOGO_URL` / `.env` |
+| Frontend build | `VITE_SUPABASE_URL` | GitHub secret `SUPABASE_URL` |
+| Frontend build | `VITE_SUPABASE_ANON_KEY` | GitHub secret `SUPABASE_ANON_KEY` |
+| Frontend build | `VITE_SUPABASE_SETTINGS_TABLE` | GitHub secret `SUPABASE_SETTINGS_TABLE` |
+| Lambda | `OUTPUT_BUCKET` | Terraform env var (`aws_s3_bucket.storage.id`) |
+| Lambda | `LOGO_BUCKET` | Terraform env var (`aws_s3_bucket.storage.id`) |
+| Lambda | `QWEN_MODEL` | Terraform env var |
+| Lambda | `SUPABASE_*` | Terraform env vars |
+| CI/CD | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | GitHub secrets |
+| CI/CD | `TF_FRONTEND_BUCKET`, `TF_STORAGE_BUCKET` | GitHub secrets |
 
 ---
 
@@ -305,9 +313,10 @@ push/PR to main
 cd frontend
 npm install
 # Create a local env file
-echo "REACT_APP_API_URL=https://<api-gateway-url>" > .env.local
-npm start       # http://localhost:3000
-npm test        # run Jest tests
+echo "VITE_GENERATE_URL=https://<generate-lambda-url>" > .env
+echo "VITE_UPLOAD_LOGO_URL=https://<upload-logo-lambda-url>" >> .env
+npm run dev     # local Vite dev server
+npm test        # run tests
 ```
 
 ### Backend
@@ -315,7 +324,10 @@ npm test        # run Jest tests
 ```bash
 cd backend/generate_pptx
 pip install -r requirements.txt
-# Run handler locally (e.g. with python-lambda-local or AWS SAM)
+
+cd ../agent_loop
+pip install -r requirements.txt
+# Run handlers locally (e.g. with python-lambda-local or AWS SAM)
 ```
 
 Using **AWS SAM** (recommended for local Lambda testing):
@@ -334,8 +346,7 @@ cd terraform
 terraform init
 terraform plan \
   -var="frontend_bucket_name=my-frontend-dev" \
-  -var="logos_bucket_name=my-logos-dev" \
-  -var="presentations_bucket_name=my-presentations-dev"
+  -var="storage_bucket_name=my-storage-dev"
 ```
 
 ---
@@ -344,17 +355,11 @@ terraform plan \
 
 1. **Fork / clone** this repository.
 2. **Create an IAM user** with sufficient permissions (S3, Lambda, API GW, CloudFront, IAM) and add the credentials as GitHub Secrets.
-3. **Choose globally unique bucket names** and add them as GitHub Secrets (`TF_FRONTEND_BUCKET`, `TF_LOGOS_BUCKET`, `TF_PRESENTATIONS_BUCKET`).
-4. **Push to `main`** — the CI/CD pipeline will:
-   - Run tests
-   - Package and deploy Lambda functions
-   - Create all AWS infrastructure via Terraform
-   - Sync the React build to S3
-   - Invalidate the CloudFront cache
-5. **Note the outputs** (`cloudfront_url`, `api_gateway_url`) from the Terraform apply step in the Actions log.
-6. **Set `REACT_APP_API_URL`** GitHub Secret to the `api_gateway_url` value.
-7. **Re-run the deploy job** (or push a trivial commit) so the frontend rebuild picks up the API URL.
-8. Open `cloudfront_url` in your browser — the app should be live!
+3. **Choose globally unique bucket names** and add GitHub Secrets (`TF_FRONTEND_BUCKET`, `TF_STORAGE_BUCKET`).
+4. **Push a PR** — CI will run tests/build and Terraform plan only.
+5. **Run Terraform apply manually** from your machine with the same variable values used in CI.
+6. **Set frontend secrets** (`GENERATE_URL`, Supabase keys/table) so the frontend build can target live backend services.
+7. Rebuild/redeploy frontend artifacts to your hosting bucket as needed.
 
 ---
 
