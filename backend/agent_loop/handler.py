@@ -174,7 +174,7 @@ STYLE GUIDE:
 - Slide background: white
 - Section label: top-left, 9 pt, RGB(128,128,128)
 - Slide title: bold, 22 pt, black, positioned below section label
-- Box headers: filled rectangles with white bold text (12 pt); use primary color
+- Box headers: filled rectangles with white bold text (12 pt); use primary color; Except for a box header that fills one column, the headers should not always take up the entire width of the column. This leaves appropriate padding. For example, for two columns, the first is slightly shorter than the first column. and the second does not immediately start at the beginning of the second column, but after a small gap. The same applies to three columns or columns where we have two-thirds and one-third (or vice versa).
 - Column separators: thin vertical line (0.5 pt, light gray) centered between columns
 - Causal separator: same vertical line + small filled triangle pointing right
 - Bullet lists: icon placeholder (filled circle) + bold title + description text
