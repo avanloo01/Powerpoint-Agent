@@ -196,45 +196,6 @@ resource "aws_iam_role_policy" "lambda_s3" {
 }
 
 # ─────────────────────────────────────────────
-# Lambda — generate_pptx
-# ─────────────────────────────────────────────
-
-data "archive_file" "generate_pptx" {
-  type        = "zip"
-  source_dir  = "${path.module}/../backend/generate_pptx"
-  output_path = "${path.module}/.terraform/lambda_zips/generate_pptx.zip"
-}
-
-resource "aws_lambda_function" "generate_pptx" {
-  function_name    = "${var.project_name}-generate-pptx"
-  filename         = data.archive_file.generate_pptx.output_path
-  source_code_hash = data.archive_file.generate_pptx.output_base64sha256
-  role             = aws_iam_role.lambda_exec.arn
-  handler          = "handler.handler"
-  runtime          = "python3.12"
-  timeout          = 300
-  memory_size      = 512
-  tags             = local.common_tags
-
-  environment {
-    variables = {
-      OUTPUT_BUCKET              = aws_s3_bucket.storage.id
-      QWEN_MODEL                 = var.qwen_model
-      SUPABASE_URL               = var.supabase_url
-      SUPABASE_ANON_KEY          = var.supabase_anon_key
-      SUPABASE_SERVICE_ROLE_KEY  = var.supabase_service_role_key
-      SUPABASE_SETTINGS_TABLE    = var.supabase_settings_table
-    }
-  }
-}
-
-resource "aws_cloudwatch_log_group" "generate_pptx" {
-  name              = "/aws/lambda/${aws_lambda_function.generate_pptx.function_name}"
-  retention_in_days = 14
-  tags              = local.common_tags
-}
-
-# ─────────────────────────────────────────────
 # Lambda — upload_logo
 # ─────────────────────────────────────────────
 
@@ -364,18 +325,6 @@ resource "aws_cloudwatch_log_group" "start_job" {
 # ─────────────────────────────────────────────
 # Lambda Function URLs (no API Gateway)
 # ─────────────────────────────────────────────
-
-resource "aws_lambda_function_url" "generate_pptx" {
-  function_name      = aws_lambda_function.generate_pptx.function_name
-  authorization_type = "NONE"
-
-  cors {
-    allow_origins = ["*"]
-    allow_methods = ["POST"]
-    allow_headers = ["content-type", "authorization"]
-    max_age       = 300
-  }
-}
 
 resource "aws_lambda_function_url" "upload_logo" {
   function_name      = aws_lambda_function.upload_logo.function_name

@@ -42,18 +42,20 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
-            backend/generate_pptx/requirements.txt
+            backend/agent_loop/requirements.txt
             backend/upload_logo/requirements.txt
+            backend/start_job/requirements.txt
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install ruff pytest
-          pip install -r generate_pptx/requirements.txt
+          pip install -r agent_loop/requirements.txt
           pip install -r upload_logo/requirements.txt
+          pip install -r start_job/requirements.txt
 
       - name: Lint with ruff
-        run: ruff check generate_pptx upload_logo
+        run: ruff check agent_loop upload_logo start_job
 
 
   # ────────────────────────────────────────────

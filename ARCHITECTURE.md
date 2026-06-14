@@ -1,6 +1,6 @@
 # PowerPoint Agent — Architecture & Developer Guide
 
-> **TL;DR:** A React SPA hosted on S3 + CloudFront lets users describe a presentation. A Python Lambda calls Qwen AI and returns a generated `.pptx` via a presigned S3 URL. User settings (API key, brand colors) live in browser cookies; logos are stored in a separate S3 bucket.
+> **TL;DR:** A React SPA hosted on S3 + CloudFront lets users describe a presentation. A Python Lambda (`start_job`) creates an async job, then an agent-loop Lambda (`agent_loop`) orchestrates Research → Structure → Build stages using Qwen AI and returns a generated `.pptx` via a presigned S3 URL. User settings and brand colors are stored in Supabase; logos are stored in S3.
 
 ---
 
@@ -27,12 +27,23 @@ Browser
   ├─ HTTPS ──► CloudFront ──► S3 (frontend bucket)
   │               React SPA served as static files
   │
-  └─ HTTPS ──► API Gateway (HTTP API)
+  └─ HTTPS ──► Lambda Function URLs
                   │
-                  ├─ POST /generate ──► Lambda: generate_pptx
-                  │                        │
-                  │                        ├─ Qwen AI (DashScope API, OpenAI-compatible)
-                  │                        └─ S3 (presentations bucket) — presigned URL returned
+                  ├─ POST /start_job ──► Lambda: start_job
+                  │       │                  │
+                  │       │                  ├─ Validates auth via Supabase
+                  │       │                  ├─ Creates jobs row (status: pending)
+                  │       │                  └─ Invokes agent_loop asynchronously
+                  │       │                  └─ Returns { jobId }
+                  │       │
+                  │       └──► Lambda: agent_loop (async)
+                  │               │
+                  │               ├─ Stage 1: Research — Qwen + web search
+                  │               ├─ Stage 2: Structure — JSON blueprint (charts, columns, etc.)
+                  │               ├─ Stage 3a: Build — AI generates python-pptx code
+                  │               ├─ Stage 3b: Execute — runs code with self-correction
+                  │               ├─ S3 (presentations bucket) — presigned URL stored in jobs row
+                  │               └─ Updates jobs row (status: done/error)
                   │
                   └─ POST /upload-logo ──► Lambda: upload_logo
                                               │
@@ -45,12 +56,13 @@ Browser
 | Decision | Rationale |
 |---|---|
 | React SPA on S3 + CloudFront | Zero server ops, global CDN, cheap |
-| API Gateway HTTP API (v2) | Low latency, built-in CORS, cheaper than REST API |
+| Lambda Function URLs | Direct HTTPS endpoints, simpler than API Gateway |
 | Lambda per function | Simple, scales to zero, easy to deploy independently |
+| Async job-based generation | Research → Structure → Build pipeline takes time; async prevents timeout |
+| Supabase for settings & jobs | User auth, settings persistence, and job tracking in one place |
+| AI-generated python-pptx code | Dynamic slide layouts (charts, columns, news cards) — not hardcoded templates |
 | Presigned S3 URLs for uploads | Browser uploads directly to S3 — no Lambda bandwidth cost |
 | Presigned S3 URLs for downloads | Presentations are private; link expires in 1 hour |
-| API key in browser cookie | No backend secret storage required; user owns their key |
-| Colors in browser cookie | Purely client-side preference, no persistence needed |
 
 ---
 
@@ -75,8 +87,11 @@ Browser
 │   ├── package.json
 │   └── tsconfig.json
 ├── backend/
-│   ├── generate_pptx/
-│   │   ├── handler.py          # Lambda: generate presentation
+│   ├── start_job/
+│   │   ├── handler.py          # Lambda: validate auth, create job, invoke agent_loop
+│   │   └── requirements.txt
+│   ├── agent_loop/
+│   │   ├── handler.py          # Lambda: async 3-stage generation pipeline
 │   │   └── requirements.txt
 │   └── upload_logo/
 │       ├── handler.py          # Lambda: return presigned upload URL
@@ -97,26 +112,19 @@ Browser
 
 #### `HomePage` (`/`)
 - Large prompt `<textarea>`
-- **Generate** button — POSTs `{ prompt, apiKey, primaryColor, accentColor }` to `/generate`
-- On success, shows a **Download** link backed by the presigned S3 URL
+- **Generate** button — POSTs `{ prompt }` to the `start_job` Lambda, gets back `{ jobId }`
+- Polls the Supabase `jobs` table for status (`pending` → `researching` → `structuring` → `building` → `done`)
+- Shows a live status message while the job progresses
+- On completion, shows a **Download** link backed by the presigned S3 URL
 - `⚙️ Settings` button in the top-right corner navigates to `/settings`
-- If no API key cookie is set, a hint nudges the user to the Settings page
+- If no API key is saved, a hint nudges the user to the Settings page
 
 #### `SettingsPage` (`/settings`)
 - **Back** button returns to `/`
 - **Logo upload**: drag-and-drop or file picker → calls `/upload-logo` for a presigned PUT URL → browser uploads directly to S3
 - **Brand colors**: native `<input type="color">` pickers for *Primary* and *Accent* colors
-- **Qwen API key**: password input
-- **Save Settings**: writes all values to cookies (1-year expiry, `SameSite=Strict`)
-
-### Cookie Keys
-
-| Cookie | Content | Default |
-|---|---|---|
-| `qwen_api_key` | Qwen DashScope API key | _(empty)_ |
-| `primary_color` | CSS hex, e.g. `#4f46e5` | `#4f46e5` |
-| `accent_color` | CSS hex, e.g. `#f59e0b` | `#f59e0b` |
-| `logo_url` | Public S3 URL of uploaded logo | _(empty)_ |
+- **Qwen API key**: password input, saved to Supabase
+- **Save Settings**: upserts values to the `user_settings` table in Supabase
 
 ### Dependencies
 
@@ -125,43 +133,83 @@ Browser
 | `react` / `react-dom` | UI framework |
 | `react-router-dom` v6 | Client-side routing |
 | `axios` | HTTP client for API calls |
-| `js-cookie` | Cookie read/write helper |
+| `@supabase/supabase-js` | Supabase client (auth, settings, job polling) |
 
 ---
 
 ## 4. Backend (Lambda)
 
-### `generate_pptx` Lambda
+### `start_job` Lambda
 
-**Route:** `POST /generate`
+**Route:** Lambda Function URL — `POST /`
 
 **Request body:**
 ```json
 {
-  "prompt":       "A 5-slide overview of renewable energy",
-  "apiKey":       "<Qwen DashScope API key>",
-  "primaryColor": "#4f46e5",
-  "accentColor":  "#f59e0b",
-  "logoUrl":      "https://..."  // optional
+  "prompt":   "A 5-slide overview of renewable energy trends in 2025",
+  "fileIDs":  []  // optional, reserved for future use
 }
 ```
 
 **Response body:**
 ```json
-{ "downloadUrl": "https://s3.amazonaws.com/..." }
+{ "jobId": "uuid-here" }
 ```
 
 **Flow:**
-1. Validates `prompt` and `apiKey`
-2. Calls Qwen via the OpenAI-compatible SDK (`qwen3.6-plus` model by default)
-3. Parses the JSON array of `{ title, content }` slides
-4. Builds a `.pptx` with `python-pptx`, applying brand colors
-5. Uploads the file to the presentations S3 bucket
-6. Returns a presigned GET URL (1-hour expiry)
+1. Extracts bearer token from the `Authorization` header
+2. Validates the token via Supabase Auth (`GET /auth/v1/user`)
+3. Loads user settings (API key, brand colors, logo URL) from the Supabase `user_settings` table
+4. Validates the prompt and API key
+5. Creates a `jobs` row in Supabase with `status: "pending"`
+6. Invokes the `agent_loop` Lambda asynchronously (`InvocationType="Event"`)
+7. Returns `{ jobId }` to the caller
+
+**Environment variables:**
+- `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` — Supabase connection
+- `SUPABASE_SETTINGS_TABLE` — settings table name (default `user_settings`)
+- `AGENT_LOOP_FUNCTION_NAME` — name of the agent-loop Lambda to invoke
+
+---
+
+### `agent_loop` Lambda
+
+**Invoked by:** `start_job` (async, fire-and-forget)
+
+**Input payload:**
+```json
+{
+  "job_id":   "uuid-here",
+  "prompt":   "...",
+  "file_ids": [],
+  "settings": {
+    "api_key":       "...",
+    "primary_color": "#C00000",
+    "accent_color":  "#A6CAEC",
+    "logo_url":      "https://..."
+  }
+}
+```
+
+**Pipeline (3 stages):**
+
+| Stage | Lambda step | What it does |
+|---|---|---|
+| 1 | **Research** | Calls Qwen with `enable_search=true` to gather current facts, stats, and trends |
+| 2 | **Structure** | Designs a rich JSON blueprint with slides, columns, charts, bullet lists, news cards, etc. |
+| 3a | **Build (code gen)** | Asks Qwen to write a `build_presentation(prs)` function using python-pptx |
+| 3b | **Build (execute)** | Runs the generated code in a restricted namespace with up to 3 self-correction attempts |
+
+**After pipeline:**
+1. Uploads the `.pptx` to S3 under `presentations/{job_id}.pptx`
+2. Generates a presigned GET URL (1-hour expiry)
+3. Updates the Supabase `jobs` row with `status: "done"` and the `download_url`
+4. On failure, sets `status: "error"` with an error message
 
 **Environment variables:**
 - `OUTPUT_BUCKET` — presentations S3 bucket name
 - `QWEN_MODEL` — Qwen model to use (default: `qwen3.6-plus`)
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — for job status updates
 
 ---
 
@@ -201,12 +249,10 @@ All resources live in `terraform/main.tf`. Run from the `terraform/` directory.
 | Resource | Type | Purpose |
 |---|---|---|
 | `aws_s3_bucket.frontend` | S3 | Frontend static files |
-| `aws_s3_bucket.storage` | S3 | Shared storage for logos (`logo/`) and presentations (`presentations/`) |
+| `aws_s3_bucket.storage` | S3 | Shared storage for logos (`logo/`), presentations (`presentations/`), and icons (`icons/`) |
 | `aws_s3_bucket_lifecycle_configuration.presentations` | S3 Lifecycle | Expires `presentations/` objects after 7 days |
-| `aws_lambda_function_url.generate_pptx` | Lambda URL | Direct HTTPS endpoint for sync generation |
-| `aws_lambda_function_url.upload_logo` | Lambda URL | Direct HTTPS endpoint for logo upload URL creation |
 | `aws_lambda_function_url.start_job` | Lambda URL | Direct HTTPS endpoint for async job creation |
-| `aws_lambda_function.generate_pptx` | Lambda | Synchronous generation endpoint |
+| `aws_lambda_function_url.upload_logo` | Lambda URL | Direct HTTPS endpoint for logo upload URL creation |
 | `aws_lambda_function.start_job` | Lambda | Creates async job record and triggers agent loop |
 | `aws_lambda_function.agent_loop` | Lambda | Async multi-stage generation loop |
 | `aws_lambda_function.upload_logo` | Lambda | Returns presigned upload URL under `logo/` |
@@ -239,15 +285,14 @@ qwen_model   = "qwen3.6-plus"
 After `terraform apply`:
 
 ```
-generate_pptx_function_url = "https://xxxx.lambda-url.ap-southeast-1.on.aws/"
+start_job_function_url     = "https://xxxx.lambda-url.ap-southeast-1.on.aws/"
 upload_logo_function_url   = "https://yyyy.lambda-url.ap-southeast-1.on.aws/"
-start_job_function_url     = "https://zzzz.lambda-url.ap-southeast-1.on.aws/"
 frontend_bucket_name    = "<frontend-bucket>"
 storage_bucket_name     = "<shared-storage-bucket>"
 agent_loop_function_name = "pptx-agent-agent-loop"
 ```
 
-Use these Function URL outputs directly in frontend env vars (`VITE_GENERATE_URL`, `VITE_UPLOAD_LOGO_URL`, `VITE_START_JOB_URL`).
+Use these Function URL outputs directly in frontend env vars (`VITE_GENERATE_URL`, `VITE_UPLOAD_LOGO_URL`). `VITE_GENERATE_URL` should point to the `start_job` Function URL.
 
 ---
 
@@ -274,7 +319,7 @@ Terraform apply is intentionally manual (not executed by CI).
 |---|---|
 | `AWS_ACCESS_KEY_ID` | IAM access key |
 | `AWS_SECRET_ACCESS_KEY` | IAM secret key |
-| `GENERATE_URL` | Lambda generate URL (`VITE_GENERATE_URL`) |
+| `GENERATE_URL` | `start_job` Lambda URL (`VITE_GENERATE_URL`) |
 | `UPLOAD_LOGO_URL` | Lambda upload-logo URL (`VITE_UPLOAD_LOGO_URL`) |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anon key |
@@ -291,7 +336,7 @@ Terraform apply is intentionally manual (not executed by CI).
 
 | Scope | Key | Where set |
 |---|---|---|
-| Frontend build | `VITE_GENERATE_URL` | GitHub secret `GENERATE_URL` / `.env` |
+| Frontend build | `VITE_GENERATE_URL` | GitHub secret `GENERATE_URL` (the `start_job` Lambda URL) / `.env` |
 | Frontend build | `VITE_UPLOAD_LOGO_URL` | GitHub secret `UPLOAD_LOGO_URL` / `.env` |
 | Frontend build | `VITE_SUPABASE_URL` | GitHub secret `SUPABASE_URL` |
 | Frontend build | `VITE_SUPABASE_ANON_KEY` | GitHub secret `SUPABASE_ANON_KEY` |
@@ -313,7 +358,7 @@ Terraform apply is intentionally manual (not executed by CI).
 cd frontend
 npm install
 # Create a local env file
-echo "VITE_GENERATE_URL=https://<generate-lambda-url>" > .env
+echo "VITE_GENERATE_URL=https://<start-job-lambda-url>" > .env
 echo "VITE_UPLOAD_LOGO_URL=https://<upload-logo-lambda-url>" >> .env
 npm run dev     # local Vite dev server
 npm test        # run tests
@@ -322,10 +367,10 @@ npm test        # run tests
 ### Backend
 
 ```bash
-cd backend/generate_pptx
+cd backend/agent_loop
 pip install -r requirements.txt
 
-cd ../agent_loop
+cd ../start_job
 pip install -r requirements.txt
 # Run handlers locally (e.g. with python-lambda-local or AWS SAM)
 ```
@@ -334,8 +379,8 @@ Using **AWS SAM** (recommended for local Lambda testing):
 
 ```bash
 # Install SAM CLI: https://docs.aws.amazon.com/serverless-application-model/
-sam local invoke GeneratePptxFunction \
-  --event events/generate_event.json \
+sam local invoke StartJobFunction \
+  --event events/start_job_event.json \
   --env-vars env.json
 ```
 

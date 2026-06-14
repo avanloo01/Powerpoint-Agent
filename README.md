@@ -9,7 +9,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full developer guide, including
 ## Stack
 
 - **Frontend:** React 18 + TypeScript, hosted on S3 behind CloudFront
-- **Backend:** Python 3.12 AWS Lambda functions (`generate_pptx`, `upload_logo`)
+- **Backend:** Python 3.12 AWS Lambda functions (`start_job`, `agent_loop`, `upload_logo`)
 - **AI:** Qwen AI via the OpenAI-compatible DashScope SDK
 - **Infrastructure:** Terraform (AWS — S3, CloudFront, API Gateway, Lambda, IAM)
 - **CI/CD:** GitHub Actions

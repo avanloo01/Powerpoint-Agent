@@ -1,7 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { generatePresentation } from '../services/api';
+import { startGeneration, pollJobStatus, type JobStatus } from '../services/api';
 import { getCurrentUserSettings, supabase } from '../services/supabase';
+
+const STAGE_EMOJIS: Record<string, string> = {
+  pending: '⏳',
+  researching: '🔍',
+  structuring: '📐',
+  building: '🔨',
+  done: '✅',
+  error: '❌',
+};
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -9,6 +18,7 @@ const HomePage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [downloadUrl, setDownloadUrl] = useState('');
+  const [stageMessage, setStageMessage] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [primaryColor, setPrimaryColor] = useState('#4f46e5');
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -59,11 +69,20 @@ const HomePage: React.FC = () => {
 
     setError('');
     setDownloadUrl('');
+    setStageMessage('');
     setLoading(true);
 
     try {
-      const url = await generatePresentation({ prompt });
-      setDownloadUrl(url);
+      const jobId = await startGeneration({ prompt });
+      setStageMessage('⏳ Queuing job\u2026');
+
+      const result = await pollJobStatus(jobId, (status: JobStatus) => {
+        const emoji = STAGE_EMOJIS[status.status] || '⏳';
+        setStageMessage(`${emoji} ${status.stageMessage}`);
+      });
+
+      setDownloadUrl(result.downloadUrl ?? '');
+      setStageMessage('✅ Your presentation is ready!');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
       setError(message);
@@ -113,6 +132,12 @@ const HomePage: React.FC = () => {
           >
             {loading ? '⏳ Generating...' : '✨ Generate Presentation'}
           </button>
+
+          {loading && stageMessage && (
+            <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-600">
+              {stageMessage}
+            </div>
+          )}
 
           {error && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">

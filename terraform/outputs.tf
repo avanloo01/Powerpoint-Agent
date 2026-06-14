@@ -3,11 +3,6 @@ output "frontend_website_url" {
   value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
 }
 
-output "generate_pptx_function_url" {
-  description = "Lambda Function URL for generate-pptx. Set VITE_GENERATE_URL to this value."
-  value       = aws_lambda_function_url.generate_pptx.function_url
-}
-
 output "frontend_bucket_name" {
   description = "S3 bucket that hosts the built frontend app."
   value       = aws_s3_bucket.frontend.id
@@ -16,11 +11,6 @@ output "frontend_bucket_name" {
 output "storage_bucket_name" {
   description = "Shared S3 bucket for uploaded logos and generated presentations."
   value       = aws_s3_bucket.storage.id
-}
-
-output "generate_pptx_function_name" {
-  description = "Name of the generate-pptx Lambda function."
-  value       = aws_lambda_function.generate_pptx.function_name
 }
 
 output "upload_logo_function_name" {
