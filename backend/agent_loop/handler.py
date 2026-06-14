@@ -68,7 +68,7 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
     system = (
         "You are a research analyst preparing materials for a business presentation. "
         "Use web search to gather current facts, statistics, trends and examples. "
-        "Produce a thorough markdown document covering: key facts and data, recent trends, "
+        "Produce a thorough markdown document covering: key facts and useful tables with data that can be used in charts, "
         "notable examples or case studies, and key takeaways. "
         "Include specific numbers and dates where available."
     )
@@ -124,11 +124,11 @@ Return ONLY a valid JSON object matching this schema (no markdown fences):
   ]
 }
 Rules:
-- two_columns: exactly 2 columns, width_ratios must sum to 1.0
-- three_columns: exactly 3 columns, each width_ratio = 0.33
-- full_width: exactly 1 column, width_ratio = 1.0
-- For charts: always include realistic data matching the research findings
-- Use 4–8 slides total; group related slides under the same section_label
+- two_columns: exactly 2 columns, width_ratios (plus padding) must sum to 1.0
+- three_columns: exactly 3 columns, each width_ratio (plus padding) = 0.33
+- full_width: exactly 1 column, width_ratio (no padding here) = 1.0
+- For charts: always include ACTUAL data matching the research findings
+- Use 12–15 slides total; group related slides under the same section_label
 """)
 
 
@@ -159,7 +159,7 @@ def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> di
 _BUILD_SYSTEM = textwrap.dedent("""\
 You are an expert python-pptx developer. Write a Python function called
 `build_presentation(prs, logo_bytes=None)` that adds all slides to the given
-python-pptx Presentation object `prs`.
+python-pptx Presentation object `prs`. ONLY return the function code, no markdown fences or explanations.
 
 CONSTRAINTS:
 - `prs` already has slide_width = Inches(13.33), slide_height = Inches(7.5)
@@ -176,10 +176,10 @@ STYLE GUIDE:
 - Slide title: bold, 22 pt, black, positioned below section label
 - Box headers: filled rectangles with white bold text (12 pt); use primary color; Except for a box header that fills one column, the headers should not always take up the entire width of the column. This leaves appropriate padding. For example, for two columns, the first is slightly shorter than the first column. and the second does not immediately start at the beginning of the second column, but after a small gap. The same applies to three columns or columns where we have two-thirds and one-third (or vice versa).
 - Column separators: thin vertical line (0.5 pt, light gray) centered between columns
-- Causal separator: same vertical line + small filled triangle pointing right
+- Causal separator: same vertical line + small filled triangle pointing right in the middle of the line
 - Bullet lists: icon placeholder (filled circle) + bold title + description text
 - Charts: use ChartData + slide.shapes.add_chart() for bar/line/pie charts
-- Conclusion box: thin-bordered rectangle (1 pt, primary color), centered italic text 11 pt
+- Conclusion box: thin-bordered rectangle (1 pt, primary color), centered italic text 11 pt, the width is the same as the width of a full-width/single column
 - Sources: bottom-left, 8 pt, RGB(128,128,128)
 - Logo: the function receives a keyword argument `logo_bytes` (bytes or None).
   When logo_bytes is not None, place the logo on EVERY slide at the top-right
@@ -196,7 +196,7 @@ def _build_code(structure: dict, settings: dict, client: OpenAI, job_id: str, ha
 
     primary = settings.get("primary_color", "#C00000")
     accent = settings.get("accent_color", "#A6CAEC")
-    logo_note = "A logo_bytes parameter WILL be provided — place the logo on every slide." if has_logo else "No logo will be provided."
+    logo_note = "A logo_bytes parameter WILL be provided, place the logo on every slide." if has_logo else "No logo will be provided."
     user_msg = (
         f"Primary color: {primary}\n"
         f"Accent color: {accent}\n"
