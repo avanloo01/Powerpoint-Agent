@@ -158,8 +158,8 @@ def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> di
 
 _BUILD_SYSTEM = textwrap.dedent("""\
 You are an expert python-pptx developer. Write a Python function called
-`build_presentation(prs)` that adds all slides to the given python-pptx
-Presentation object `prs`.
+`build_presentation(prs, logo_bytes=None)` that adds all slides to the given
+python-pptx Presentation object `prs`.
 
 CONSTRAINTS:
 - `prs` already has slide_width = Inches(13.33), slide_height = Inches(7.5)
@@ -181,19 +181,26 @@ STYLE GUIDE:
 - Charts: use ChartData + slide.shapes.add_chart() for bar/line/pie charts
 - Conclusion box: thin-bordered rectangle (1 pt, primary color), centered italic text 11 pt
 - Sources: bottom-left, 8 pt, RGB(128,128,128)
-- Logo: if logo_url is provided pass it as a parameter; otherwise skip
+- Logo: the function receives a keyword argument `logo_bytes` (bytes or None).
+  When logo_bytes is not None, place the logo on EVERY slide at the top-right
+  corner. Use io.BytesIO(logo_bytes) + slide.shapes.add_picture(). The logo
+  must be small (0.5–0.7 inches tall, proportional width). Its right edge must
+  align with the right edge of the rightmost column. Its top edge must align
+  with the section label / slide title top edge.
 """)
 
 
-def _build_code(structure: dict, settings: dict, client: OpenAI, job_id: str) -> str:
+def _build_code(structure: dict, settings: dict, client: OpenAI, job_id: str, has_logo: bool = False) -> str:
     """Stage 3a – Generate python-pptx code from the structure blueprint."""
     _update_job(job_id, status="building", stage_message="Building your presentation\u2026")
 
     primary = settings.get("primary_color", "#C00000")
     accent = settings.get("accent_color", "#A6CAEC")
+    logo_note = "A logo_bytes parameter WILL be provided — place the logo on every slide." if has_logo else "No logo will be provided."
     user_msg = (
         f"Primary color: {primary}\n"
-        f"Accent color: {accent}\n\n"
+        f"Accent color: {accent}\n"
+        f"Logo: {logo_note}\n\n"
         f"Presentation structure:\n{json.dumps(structure, indent=2)}"
     )
     response = client.chat.completions.create(
@@ -209,10 +216,10 @@ def _build_code(structure: dict, settings: dict, client: OpenAI, job_id: str) ->
 
 # ─── EXECUTE GENERATED CODE ───────────────────────────────────────────────────
 
-def _execute(code: str) -> bytes:
+def _execute(code: str, logo_bytes: bytes | None = None) -> bytes:
     """
-    Execute the AI-generated build_presentation(prs) function in a restricted
-    namespace and return the resulting PPTX bytes.
+    Execute the AI-generated build_presentation(prs, logo_bytes=...) function
+    in a restricted namespace and return the resulting PPTX bytes.
 
     Security notes:
     - __builtins__ is replaced with a curated allowlist; __import__, open,
@@ -269,7 +276,7 @@ def _execute(code: str) -> bytes:
     prs = _Prs()
     prs.slide_width = pptx.util.Inches(13.33)
     prs.slide_height = pptx.util.Inches(7.5)
-    build_fn(prs)
+    build_fn(prs, logo_bytes=logo_bytes)
 
     buf = io.BytesIO()
     prs.save(buf)
@@ -290,6 +297,17 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
     s3 = boto3.client("s3")
 
     try:
+        # ── Stage 0: Download logo (if provided) ────────────────────────────
+        logo_bytes: bytes | None = None
+        logo_url = settings.get("logo_url", "")
+        if logo_url:
+            try:
+                req = urlrequest.Request(url=logo_url, method="GET")
+                with urlrequest.urlopen(req, timeout=15) as resp:
+                    logo_bytes = resp.read()
+            except Exception:  # noqa: BLE001 – non-critical; proceed without logo
+                logo_bytes = None
+
         # ── Stage 1: Research ───────────────────────────────────────────────
         research_md = _research(prompt, client, job_id)
         _update_job(job_id, research_md=research_md)
@@ -299,7 +317,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         _update_job(job_id, structure_md=json.dumps(structure, indent=2))
 
         # ── Stage 3a: Generate code ─────────────────────────────────────────
-        pptx_code = _build_code(structure, settings, client, job_id)
+        pptx_code = _build_code(structure, settings, client, job_id, has_logo=logo_bytes is not None)
         _update_job(job_id, pptx_code=pptx_code)
 
         # ── Stage 3b: Execute with up to 3 self-correction attempts ─────────
@@ -308,7 +326,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
 
         for attempt in range(3):
             try:
-                pptx_bytes = _execute(pptx_code)
+                pptx_bytes = _execute(pptx_code, logo_bytes=logo_bytes)
                 break
             except Exception as exc:  # noqa: BLE001
                 last_error = str(exc)
