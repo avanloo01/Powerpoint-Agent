@@ -153,7 +153,7 @@ Browser
 
 **Flow:**
 1. Validates `prompt` and `apiKey`
-2. Calls Qwen via the OpenAI-compatible SDK (`qwen-turbo` model by default)
+2. Calls Qwen via the OpenAI-compatible SDK (`qwen3.6-plus` model by default)
 3. Parses the JSON array of `{ title, content }` slides
 4. Builds a `.pptx` with `python-pptx`, applying brand colors
 5. Uploads the file to the presentations S3 bucket
@@ -161,7 +161,7 @@ Browser
 
 **Environment variables:**
 - `OUTPUT_BUCKET` — presentations S3 bucket name
-- `QWEN_MODEL` — Qwen model to use (default: `qwen-turbo`)
+- `QWEN_MODEL` — Qwen model to use (default: `qwen3.6-plus`)
 
 ---
 
@@ -231,7 +231,7 @@ storage_bucket_name  = "pptx-agent-storage-<account-id>"
 aws_region   = "ap-southeast-1"   # default
 project_name = "pptx-agent"  # used as resource name prefix
 environment  = "prod"
-qwen_model   = "qwen-turbo"
+qwen_model   = "qwen3.6-plus"
 ```
 
 ### Key Outputs
