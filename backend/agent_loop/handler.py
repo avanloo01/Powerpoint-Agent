@@ -94,7 +94,7 @@ Return ONLY a valid JSON object matching this schema (no markdown fences):
     {
       "slide_title": "string",
       "section_label": "string",
-      "layout": "two_columns | three_columns | full_width",
+      "layout": "two_columns | three_columns | full_width | title_slide | section_divider",
       "columns": [
         {
           "width_ratio": <0.33 | 0.5 | 0.67 | 1.0>,
@@ -127,6 +127,8 @@ Rules:
 - two_columns: exactly 2 columns, width_ratios (plus padding) must sum to 1.0
 - three_columns: exactly 3 columns, each width_ratio (plus padding) = 0.33
 - full_width: exactly 1 column, width_ratio (no padding here) = 1.0
+- title_slide: the title of this slide is the presentation title. No other content is needed.
+- section_divider: for the title of the slide, write an interesting question that covers the content of that section; for the section_label, give the name of the section. No other content is needed.
 - For charts: always include ACTUAL data matching the research findings
 - Use 12–15 slides total; group related slides under the same section_label
 """)
@@ -171,6 +173,8 @@ CONSTRAINTS:
 - The function must be syntactically valid Python 3.12
 
 STYLE GUIDE:
+- If the layout is title_slide, just write the title of that slide in the middle of the slide in bold 54 pt black text (no other formatting is needed). Users should add a fitting image in the background.
+- If the layout is section_divider, the user will have to supply a background image later which will go at x=0, y=0, covering the full slide width and height. On top of the background image, we need a horizontal strip in white with a height of 5.74 cm and the full slide width, positioned at y = slide_height - Cm(5.74), x = 0. Inside the banner, we need the slide title in bold black at 32pt (which should be an interesting question covering that section's contents), in a textbox at x=Cm(6.27), y=Cm(14.7), width=slide_width - Cm(6.27), height=Cm(3.5). Below the title, we need the actual section label in gray (RGB 128,128,128) at 16pt, in a textbox at x=Cm(6.27), y=Cm(16.6), width=slide_width - Cm(6.27), height=Cm(2). At the left of the banner we have a square at x=0, y=slide_height - Cm(5.74), width=Cm(5.74), height=Cm(5.74). The square should be in the primary color and contain the section number in bold white 48pt text (e.g., "01" or "02"), centered both horizontally and vertically. Shapes must be added in this order: background image first, then white rectangle, then accent square, then title textbox, then subtitle textbox.
 - Slide background: white
 - Section label: top-left, 9 pt, RGB(128,128,128)
 - Slide title: bold, 22 pt, black, positioned below section label
