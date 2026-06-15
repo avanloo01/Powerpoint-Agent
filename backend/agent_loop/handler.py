@@ -119,7 +119,8 @@ Return ONLY a valid JSON object matching this schema (no markdown fences):
       ],
       "column_separator": "line | causal_line | none",
       "conclusion_box": "string or null",
-      "sources": "string or null"
+      "sources": "string or null",
+      "notes": "string or null"
     }
   ]
 }
@@ -130,6 +131,7 @@ Rules:
 - title_slide: the title of this slide is the presentation title. No other content is needed.
 - section_divider: for the title of the slide, write an interesting question that covers the content of that section; for the section_label, give the name of the section. No other content is needed.
 - For charts: always include ACTUAL data matching the research findings
+- For sources, write the author in the sources field (this will appear on the slide), write the actual url in the notes field (this will not appear on the slide but is useful for the user)
 - Use 12–15 slides total; group related slides under the same section_label
 """)
 
