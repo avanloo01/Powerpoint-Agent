@@ -81,7 +81,30 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
         extra_body={"enable_search": True},
         max_tokens=4000,
     )
-    return response.choices[0].message.content or ""
+    research_md = response.choices[0].message.content or ""
+
+    # ── Image search for title / section-divider backgrounds ───────────────
+    image_prompt = (
+        f"Find 4-5 high-quality, professional background images suitable for a "
+        f"business presentation about: {prompt}. The images should be simple "
+        f", modern, and work well as full-slide backgrounds for a title "
+        f"slide and section dividers. Search for broad visual concepts related to "
+        f"the topic rather than specific data or charts. For each image found, "
+        f"include its URL. Examples could be 'data center' for a presentation covering a paper on data center spatial distribution or 'smartphone factory' for a presentation on the company Transsion"
+    )
+    try:
+        image_response = client.responses.create(
+            model=QWEN_MODEL,
+            input=image_prompt,
+            tools=[{"type": "web_search_image"}],
+        )
+        image_text = image_response.output_text
+        if image_text:
+            research_md += "\n\n## Image Search Results (for title & divider backgrounds)\n\n" + image_text
+    except Exception:  # noqa: BLE001 – non-critical; proceed without images
+        pass
+
+    return research_md
 
 
 # ─── STRUCTURE AGENT ─────────────────────────────────────────────────────────
@@ -95,6 +118,7 @@ Return ONLY a valid JSON object matching this schema (no markdown fences):
       "slide_title": "string",
       "section_label": "string",
       "layout": "two_columns | three_columns | full_width | title_slide | section_divider",
+      "image_url": "string or null",
       "columns": [
         {
           "width_ratio": <0.33 | 0.5 | 0.67 | 1.0>,
@@ -130,6 +154,7 @@ Rules:
 - full_width: exactly 1 column, width_ratio (no padding here) = 1.0
 - title_slide: the title of this slide is the presentation title. No other content is needed.
 - section_divider: for the title of the slide, write an interesting question that covers the content of that section; for the section_label, give the name of the section. No other content is needed.
+- image_url: the research document should contain images that can be used as the background for the title slide and section divider slides. Use the urls available for relevant title slides and section divider slides. If no relevant image is found, set image_url to null.
 - For charts: always include ACTUAL data matching the research findings
 - For sources, write the author in the sources field (this will appear on the slide), write the actual url in the notes field (this will not appear on the slide but is useful for the user)
 - Use 12–15 slides total; group related slides under the same section_label
@@ -175,8 +200,12 @@ CONSTRAINTS:
 - The function must be syntactically valid Python 3.12
 
 STYLE GUIDE:
-- If the layout is title_slide, just write the title of that slide in the middle of the slide in bold 54 pt black text (no other formatting is needed). Users should add a fitting image in the background.
-- If the layout is section_divider, the user will have to supply a background image later which will go at x=0, y=0, covering the full slide width and height. On top of the background image, we need a horizontal strip in white with a height of 5.74 cm and the full slide width, positioned at y = slide_height - Cm(5.74), x = 0. Inside the banner, we need the slide title in bold black at 32pt (which should be an interesting question covering that section's contents), in a textbox at x=Cm(6.27), y=Cm(14.7), width=slide_width - Cm(6.27), height=Cm(3.5). Below the title, we need the actual section label in gray (RGB 128,128,128) at 16pt, in a textbox at x=Cm(6.27), y=Cm(16.6), width=slide_width - Cm(6.27), height=Cm(2). At the left of the banner we have a square at x=0, y=slide_height - Cm(5.74), width=Cm(5.74), height=Cm(5.74). The square should be in the primary color and contain the section number in bold white 48pt text (e.g., "01" or "02"), centered both horizontally and vertically. Shapes must be added in this order: background image first, then white rectangle, then accent square, then title textbox, then subtitle textbox.
+- If the layout is `title_slide`: fetch the image from the structure file's image URL, darken it using Pillow (`ImageEnhance.Brightness(img).enhance(0.6)`) and insert the darkened bytes as a full-slide background picture. On top, place the slide title centered on the slide in bold 54pt white text.
+- If the layout is `section_divider`: fetch the image from the structure file's image URL, darken it using Pillow (`ImageEnhance.Brightness(img).enhance(0.6)`) and insert the darkened bytes as a full-slide background picture (x=0, y=0, full slide width and height). Then add shapes in this exact order:
+  1. White rectangle: x=0, y=slide_height - Cm(5.74), width=slide_width, height=Cm(5.74)
+  2. Accent square (primary color fill): x=0, y=slide_height - Cm(5.74), width=Cm(5.74), height=Cm(5.74) — contains the section number (e.g. "01") in bold white 48pt text, centered horizontally and vertically
+  3. Title textbox: x=Cm(6.27), y=Cm(14.7), width=slide_width - Cm(6.27), height=Cm(3.5) — slide title as an interesting question, bold black 32pt
+  4. Subtitle textbox: x=Cm(6.27), y=Cm(16.6), width=slide_width - Cm(6.27), height=Cm(2) — section label in RGB(128,128,128) at 16pt
 - Slide background: white
 - Section label: top-left, 9 pt, RGB(128,128,128)
 - Slide title: bold, 22 pt, black, positioned below section label
