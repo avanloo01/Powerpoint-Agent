@@ -78,8 +78,8 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
             {"role": "system", "content": system},
             {"role": "user", "content": f"Research this topic for a business presentation:\n\n{prompt}"},
         ],
-        extra_body={"enable_search": True},
-        max_tokens=4000,
+        extra_body={"enable_search": True,
+                    "search_options":{"forced_search": True, "enable_source": True, "enable_citation": True}},
     )
     research_md = response.choices[0].message.content or ""
 
