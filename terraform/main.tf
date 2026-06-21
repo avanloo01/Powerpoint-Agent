@@ -334,6 +334,16 @@ resource "aws_lambda_function_url" "upload_logo" {
   }
 }
 
+# Explicit resource-based policy so the Function URL permission is tracked
+# in terraform state and cannot be silently lost.
+resource "aws_lambda_permission" "upload_logo_url" {
+  statement_id           = "FunctionURLAllowPublicAccess"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.upload_logo.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
+
 resource "aws_lambda_function_url" "start_job" {
   function_name      = aws_lambda_function.start_job.function_name
   authorization_type = "NONE"
@@ -344,6 +354,14 @@ resource "aws_lambda_function_url" "start_job" {
     allow_headers = ["content-type", "authorization"]
     max_age       = 300
   }
+}
+
+resource "aws_lambda_permission" "start_job_url" {
+  statement_id           = "FunctionURLAllowPublicAccess"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.start_job.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
 }
 
 # ─────────────────────────────────────────────
