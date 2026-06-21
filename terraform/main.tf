@@ -344,6 +344,12 @@ resource "aws_lambda_permission" "upload_logo_url" {
   function_url_auth_type = "NONE"
 }
 
+# Starting October 2025, Function URLs require a SECOND permission
+# (lambda:InvokeFunction with lambda:InvokedViaFunctionUrl condition).
+# This is NOT auto-created by terraform — must be added explicitly.
+# Managed via AWS CLI: aws lambda add-permission ... --invoked-via-function-url
+# Imported into terraform state to prevent drift.
+
 resource "aws_lambda_function_url" "start_job" {
   function_name      = aws_lambda_function.start_job.function_name
   authorization_type = "NONE"
