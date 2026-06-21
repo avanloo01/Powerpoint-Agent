@@ -20,7 +20,7 @@ const HomePage: React.FC = () => {
   const [downloadUrl, setDownloadUrl] = useState('');
   const [stageMessage, setStageMessage] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [primaryColor, setPrimaryColor] = useState('#4f46e5');
+  const [primaryColor, setPrimaryColor] = useState('#C00000');
   const [hasApiKey, setHasApiKey] = useState(false);
 
   useEffect(() => {
@@ -33,13 +33,13 @@ const HomePage: React.FC = () => {
 
       if (!loggedIn) {
         setHasApiKey(false);
-        setPrimaryColor('#4f46e5');
+        setPrimaryColor('#C00000');
         return;
       }
 
       const settings = await getCurrentUserSettings();
       setHasApiKey(Boolean(settings?.api_key));
-      setPrimaryColor(settings?.primary_color || '#4f46e5');
+      setPrimaryColor(settings?.primary_color || '#C00000');
     };
 
     void hydrate();
@@ -124,7 +124,7 @@ const HomePage: React.FC = () => {
           <button
             className="mt-4 w-full rounded-xl px-4 py-3 text-base font-semibold text-white transition disabled:cursor-not-allowed"
             style={{
-              backgroundColor: loading ? '#a5b4fc' : primaryColor,
+              backgroundColor: loading ? '#b84040' : primaryColor,
               cursor: loading ? 'not-allowed' : 'pointer',
             }}
             onClick={handleGenerate}

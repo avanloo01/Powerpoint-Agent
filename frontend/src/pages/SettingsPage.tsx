@@ -21,8 +21,8 @@ const SettingsPage: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const [apiKey, setApiKey] = useState('');
-  const [primaryColor, setPrimaryColor] = useState('#4f46e5');
-  const [accentColor, setAccentColor] = useState('#f59e0b');
+  const [primaryColor, setPrimaryColor] = useState('#C00000');
+  const [accentColor, setAccentColor] = useState('#A6CAEC');
   const [logoUrl, setLogoUrl] = useState('');
 
   const [dataPreviewUrl, setDataPreviewUrl] = useState<string | null>(null);
@@ -48,16 +48,16 @@ const SettingsPage: React.FC = () => {
 
       if (!loggedIn) {
         setApiKey('');
-        setPrimaryColor('#4f46e5');
-        setAccentColor('#f59e0b');
+        setPrimaryColor('#C00000');
+        setAccentColor('#A6CAEC');
         setLogoUrl('');
         return;
       }
 
       const settings = await getCurrentUserSettings();
       setApiKey(settings?.api_key || '');
-      setPrimaryColor(settings?.primary_color || '#4f46e5');
-      setAccentColor(settings?.accent_color || '#f59e0b');
+      setPrimaryColor(settings?.primary_color || '#C00000');
+      setAccentColor(settings?.accent_color || '#A6CAEC');
       setLogoUrl(settings?.logo_url || '');
     };
 
