@@ -18,14 +18,14 @@ env:
   AWS_REGION: ap-southeast-1
   TF_VERSION: "1.8.0"
   PYTHON_VERSION: "3.12"
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
 
 jobs:
   # ────────────────────────────────────────────
-  # 1. Lint & test the Python backend
+  # 1. Lint, test & deploy the Python backend
   # ────────────────────────────────────────────
   backend-test:
-    name: Backend — lint & test
+    name: Backend — lint, test & deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -56,6 +56,41 @@ jobs:
 
       - name: Lint with ruff
         run: ruff check agent_loop upload_logo start_job
+
+      - name: Configure AWS credentials
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy agent_loop
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          zip -r agent_loop.zip agent_loop/
+          aws lambda update-function-code \
+            --function-name pptx-agent-agent-loop \
+            --zip-file fileb://agent_loop.zip \
+            --no-cli-pager
+
+      - name: Deploy start_job
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          zip -r start_job.zip start_job/
+          aws lambda update-function-code \
+            --function-name pptx-agent-start-job \
+            --zip-file fileb://start_job.zip \
+            --no-cli-pager
+
+      - name: Deploy upload_logo
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          zip -r upload_logo.zip upload_logo/
+          aws lambda update-function-code \
+            --function-name pptx-agent-upload-logo \
+            --zip-file fileb://upload_logo.zip \
+            --no-cli-pager
 
 
   # ────────────────────────────────────────────
@@ -159,46 +194,4 @@ jobs:
           name: tfplan
           path: terraform/tfplan
           retention-days: 1
-
-  # ────────────────────────────────────────────
-  # 4. Terraform apply + deploy Lambdas (on push to main)
-  # ────────────────────────────────────────────
-  terraform-apply:
-    name: Terraform — apply
-    runs-on: ubuntu-latest
-    needs: [backend-test, frontend-build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: terraform
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform init
-        run: terraform init
-
-      - name: Terraform apply
-        run: |
-          terraform apply -auto-approve \
-            -var="frontend_bucket_name=${{ secrets.TF_FRONTEND_BUCKET }}" \
-            -var="storage_bucket_name=${{ secrets.TF_STORAGE_BUCKET }}" \
-            -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
-            -var="supabase_anon_key=${{ secrets.SUPABASE_ANON_KEY }}" \
-            -var="supabase_service_role_key=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -var="supabase_settings_table=${{ secrets.SUPABASE_SETTINGS_TABLE }}"
 
