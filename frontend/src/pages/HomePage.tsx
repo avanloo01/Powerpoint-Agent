@@ -82,7 +82,7 @@ const HomePage: React.FC = () => {
       });
 
       setDownloadUrl(result.downloadUrl ?? '');
-      setStageMessage('✅ Your presentation is ready!');
+      setStageMessage('Your presentation is ready!');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
       setError(message);
@@ -99,7 +99,7 @@ const HomePage: React.FC = () => {
           onClick={() => navigate('/settings')}
           aria-label="Open settings"
         >
-          {isLoggedIn ? '⚙️ Settings' : '🔐 Login'}
+          {isLoggedIn ? 'Settings' : 'Login'}
         </button>
       </header>
 
@@ -130,7 +130,7 @@ const HomePage: React.FC = () => {
             onClick={handleGenerate}
             disabled={loading}
           >
-            {loading ? '⏳ Generating...' : '✨ Generate Presentation'}
+            {loading ? 'Generating...' : 'Generate Presentation'}
           </button>
 
           {loading && stageMessage && (
@@ -147,7 +147,7 @@ const HomePage: React.FC = () => {
 
           {downloadUrl && (
             <div className="mt-4 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-600">
-              <span>✅ Your presentation is ready!</span>
+              <span>Your presentation is ready!</span>
               <a
                 href={downloadUrl}
                 download="presentation.pptx"

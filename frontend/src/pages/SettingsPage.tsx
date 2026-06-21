@@ -322,7 +322,8 @@ const SettingsPage: React.FC = () => {
               </div>
 
               <button
-                className="mt-3 rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+                className="mt-3 rounded-lg px-6 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ backgroundColor: primaryColor }}
                 onClick={handleUploadLogo}
                 disabled={!logoFile}
               >
@@ -406,13 +407,14 @@ const SettingsPage: React.FC = () => {
               <h2 className="mb-1 text-base font-semibold text-slate-900">Account</h2>
               <p className="mb-4 text-sm text-slate-500">Save your preferences or log out from this device.</p>
               <button
-                className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                className="rounded-lg px-6 py-2.5 text-sm font-semibold text-white transition"
+                style={{ backgroundColor: primaryColor }}
                 onClick={handleSaveSettings}
               >
                 Save Settings
               </button>
               <button
-                className="mt-3 block rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
+                className="mt-3 block rounded-lg border border-slate-300 px-6 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50"
                 onClick={handleLogout}
               >
                 Log Out
