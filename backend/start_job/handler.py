@@ -94,6 +94,9 @@ def _create_job(job_id: str, user_id: str) -> None:
 # ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 
 def handler(event: dict, context) -> dict:  # noqa: ANN001
+    if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
+        return _response(200, {})
+
     try:
         token = _extract_bearer_token(event)
         user = _get_authenticated_user(token)

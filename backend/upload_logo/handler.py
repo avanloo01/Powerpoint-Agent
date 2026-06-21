@@ -66,6 +66,10 @@ def _file_extension(file_type: str) -> str:
 
 def handler(event: dict, context) -> dict:  # noqa: ANN001
     """AWS Lambda entry point."""
+
+    if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
+        return _response(200, {})
+
     try:
         token = _extract_bearer_token(event)
         user = _get_authenticated_user(token)
@@ -111,7 +115,7 @@ def _response(status_code: int, body: dict) -> dict:
         "headers": {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Allow-Headers": "Content-Type,Authorization",
             "Access-Control-Allow-Methods": "POST,OPTIONS",
         },
         "body": json.dumps(body),
