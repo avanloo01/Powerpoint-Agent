@@ -325,13 +325,6 @@ resource "aws_cloudwatch_log_group" "start_job" {
 resource "aws_lambda_function_url" "upload_logo" {
   function_name      = aws_lambda_function.upload_logo.function_name
   authorization_type = "NONE"
-
-  cors {
-    allow_origins = ["*"]
-    allow_methods = ["POST"]
-    allow_headers = ["content-type", "authorization"]
-    max_age       = 300
-  }
 }
 
 # Explicit resource-based policy so the Function URL permission is tracked
@@ -353,13 +346,6 @@ resource "aws_lambda_permission" "upload_logo_url" {
 resource "aws_lambda_function_url" "start_job" {
   function_name      = aws_lambda_function.start_job.function_name
   authorization_type = "NONE"
-
-  cors {
-    allow_origins = ["*"]
-    allow_methods = ["POST"]
-    allow_headers = ["content-type", "authorization"]
-    max_age       = 300
-  }
 }
 
 resource "aws_lambda_permission" "start_job_url" {
