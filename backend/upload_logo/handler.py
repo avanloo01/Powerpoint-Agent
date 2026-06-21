@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
@@ -15,6 +14,16 @@ import boto3
 S3_LOGO_BUCKET = os.environ.get("LOGO_BUCKET", "")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
+# Map MIME types to safe file extensions.
+_MIME_TO_EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/svg+xml": "svg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/bmp": "bmp",
+}
 
 
 def _extract_bearer_token(event: dict) -> str:
@@ -48,14 +57,11 @@ def _get_authenticated_user(token: str) -> dict:
 
 
 def _file_extension(file_type: str) -> str:
-    if not file_type or "/" not in file_type:
+    """Return a safe file extension for the given MIME type."""
+    if not file_type:
         return "png"
-
-    ext = file_type.split("/", 1)[1].lower().strip()
-    ext = re.sub(r"[^a-z0-9]", "", ext)
-    if not ext:
-        return "png"
-    return ext
+    # Use an explicit allowlist so unsafe or unknown types fall back to png.
+    return _MIME_TO_EXT.get(file_type.lower().strip(), "png")
 
 
 def handler(event: dict, context) -> dict:  # noqa: ANN001
@@ -72,21 +78,21 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
         ext = _file_extension(file_type)
         logo_key = f"logo/{user_id}/company_logo.{ext}"
 
-        s3 = boto3.client("s3")
+        region = os.environ.get("AWS_REGION", "ap-southeast-1")
+        s3 = boto3.client("s3", region_name=region)
 
         upload_url = s3.generate_presigned_url(
             "put_object",
             Params={
                 "Bucket": S3_LOGO_BUCKET,
                 "Key": logo_key,
-                "ContentType": file_type,
             },
             ExpiresIn=300,
+            HttpMethod="PUT",
         )
 
         # Public URL of the uploaded logo (bucket must have public-read on this key,
         # or a CloudFront distribution fronting it).
-        region = os.environ.get("AWS_REGION", "us-east-1")
         public_url = (
             f"https://{S3_LOGO_BUCKET}.s3.{region}.amazonaws.com/{logo_key}"
         )
