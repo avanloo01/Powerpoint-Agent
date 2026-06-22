@@ -5,11 +5,15 @@ frontend can upload a company logo directly to S3.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
 import boto3
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 S3_LOGO_BUCKET = os.environ.get("LOGO_BUCKET", "")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -34,9 +38,13 @@ def _extract_bearer_token(event: dict) -> str:
     return auth_header.split(" ", 1)[1].strip()
 
 
+class AuthError(ValueError):
+    """Raised when the bearer token is missing or invalid."""
+
+
 def _get_authenticated_user(token: str) -> dict:
     if not token:
-        raise ValueError("Missing bearer token")
+        raise AuthError("Missing bearer token")
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         raise RuntimeError("SUPABASE_URL and SUPABASE_ANON_KEY must be configured")
 
@@ -101,12 +109,14 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
             f"https://{S3_LOGO_BUCKET}.s3.{region}.amazonaws.com/{logo_key}"
         )
 
+        logger.info("Generated presigned URL for user=%s key=%s", user_id, logo_key)
         return _response(200, {"uploadUrl": upload_url, "publicUrl": public_url})
 
-    except ValueError:
+    except AuthError:
         return _response(401, {"error": "Unauthorized"})
-    except Exception as exc:  # noqa: BLE001
-        return _response(500, {"error": str(exc)})
+    except Exception:
+        logger.exception("Unhandled error in upload_logo handler")
+        return _response(500, {"error": "Internal server error"})
 
 
 def _response(status_code: int, body: dict) -> dict:
