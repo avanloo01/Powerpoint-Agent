@@ -98,6 +98,7 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
             Params={
                 "Bucket": S3_LOGO_BUCKET,
                 "Key": logo_key,
+                "ContentType": file_type,
             },
             ExpiresIn=300,
             HttpMethod="PUT",
