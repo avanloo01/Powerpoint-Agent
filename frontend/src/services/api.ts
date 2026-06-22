@@ -98,3 +98,15 @@ export async function getLogoUploadUrl(
   );
   return response.data;
 }
+
+/**
+ * Deletes the current user's logo from S3 via the upload_logo Lambda.
+ */
+export async function deleteLogo(): Promise<void> {
+  const token = await getAccessToken();
+  await axios.delete(UPLOAD_LOGO_URL, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}

@@ -73,9 +73,11 @@ def _file_extension(file_type: str) -> str:
 
 
 def handler(event: dict, context) -> dict:  # noqa: ANN001
-    """AWS Lambda entry point."""
+    """AWS Lambda entry point — handles POST (presigned upload URL) and DELETE."""
 
-    if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
+    http_method = event.get("requestContext", {}).get("http", {}).get("method", "POST")
+
+    if http_method == "OPTIONS":
         return _response(200, {})
 
     try:
@@ -85,39 +87,71 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
         if not user_id:
             return _response(401, {"error": "Unauthorized"})
 
-        body = json.loads(event.get("body") or "{}")
-        file_type: str = body.get("fileType", "image/png")
-        ext = _file_extension(file_type)
-        logo_key = f"logo/{user_id}/company_logo.{ext}"
-
         region = os.environ.get("AWS_REGION", "ap-southeast-1")
         s3 = boto3.client("s3", region_name=region)
 
-        upload_url = s3.generate_presigned_url(
-            "put_object",
-            Params={
-                "Bucket": S3_LOGO_BUCKET,
-                "Key": logo_key,
-                "ContentType": file_type,
-            },
-            ExpiresIn=300,
-            HttpMethod="PUT",
-        )
-
-        # Public URL of the uploaded logo (bucket must have public-read on this key,
-        # or a CloudFront distribution fronting it).
-        public_url = (
-            f"https://{S3_LOGO_BUCKET}.s3.{region}.amazonaws.com/{logo_key}"
-        )
-
-        logger.info("Generated presigned URL for user=%s key=%s", user_id, logo_key)
-        return _response(200, {"uploadUrl": upload_url, "publicUrl": public_url})
+        if http_method == "DELETE":
+            return _handle_delete(s3, user_id, region)
+        else:
+            return _handle_post(s3, user_id, region, event)
 
     except AuthError:
         return _response(401, {"error": "Unauthorized"})
     except Exception:
         logger.exception("Unhandled error in upload_logo handler")
         return _response(500, {"error": "Internal server error"})
+
+
+def _handle_post(s3, user_id: str, region: str, event: dict) -> dict:
+    """Generate a presigned PUT URL for uploading a logo."""
+    body = json.loads(event.get("body") or "{}")
+    file_type: str = body.get("fileType", "image/png")
+    ext = _file_extension(file_type)
+    logo_key = f"logo/{user_id}/company_logo.{ext}"
+
+    upload_url = s3.generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket": S3_LOGO_BUCKET,
+            "Key": logo_key,
+            "ContentType": file_type,
+        },
+        ExpiresIn=300,
+        HttpMethod="PUT",
+    )
+
+    public_url = f"https://{S3_LOGO_BUCKET}.s3.{region}.amazonaws.com/{logo_key}"
+
+    logger.info("Generated presigned URL for user=%s key=%s", user_id, logo_key)
+    return _response(200, {"uploadUrl": upload_url, "publicUrl": public_url})
+
+
+def _handle_delete(s3, user_id: str, region: str) -> dict:
+    """Delete all logo objects for the given user from S3."""
+    prefix = f"logo/{user_id}/"
+
+    # List all objects under the user's logo prefix.
+    objects_to_delete: list[dict] = []
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=S3_LOGO_BUCKET, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            objects_to_delete.append({"Key": obj["Key"]})
+
+    if objects_to_delete:
+        s3.delete_objects(
+            Bucket=S3_LOGO_BUCKET,
+            Delete={"Objects": objects_to_delete},
+        )
+        logger.info(
+            "Deleted %d logo object(s) for user=%s: %s",
+            len(objects_to_delete),
+            user_id,
+            [o["Key"] for o in objects_to_delete],
+        )
+    else:
+        logger.info("No logo objects to delete for user=%s", user_id)
+
+    return _response(200, {"deleted": True})
 
 
 def _response(status_code: int, body: dict) -> dict:
@@ -127,7 +161,7 @@ def _response(status_code: int, body: dict) -> dict:
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Headers": "Content-Type,Authorization",
-            "Access-Control-Allow-Methods": "POST,OPTIONS",
+            "Access-Control-Allow-Methods": "POST,DELETE,OPTIONS",
         },
         "body": json.dumps(body),
     }

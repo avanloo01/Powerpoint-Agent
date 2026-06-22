@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getLogoUploadUrl } from '../services/api';
+import { deleteLogo, getLogoUploadUrl } from '../services/api';
 import {
   getCurrentUserSettings,
   hasStoredSession,
@@ -276,18 +276,47 @@ const SettingsPage: React.FC = () => {
               </p>
 
               {dataPreviewUrl && (
-                <img
-                  src={dataPreviewUrl}
-                  alt="Logo preview"
-                  className="mb-3 h-20 w-20 rounded-lg border border-slate-200 object-contain"
-                />
+                <div className="relative mb-3 inline-block">
+                  <img
+                    src={dataPreviewUrl}
+                    alt="Logo preview"
+                    className="h-20 w-20 rounded-lg border border-slate-200 object-contain"
+                  />
+                  <button
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-white text-xs leading-none shadow transition hover:bg-slate-900"
+                    onClick={() => {
+                      setDataPreviewUrl(null);
+                      setLogoFile(null);
+                    }}
+                    aria-label="Remove logo preview"
+                  >
+                    ✕
+                  </button>
+                </div>
               )}
               {!dataPreviewUrl && logoUrl && isSafeImageUrl(logoUrl) && (
-                <img
-                  src={logoUrl}
-                  alt="Saved logo"
-                  className="mb-3 h-20 w-20 rounded-lg border border-slate-200 object-contain"
-                />
+                <div className="relative mb-3 inline-block">
+                  <img
+                    src={logoUrl}
+                    alt="Saved logo"
+                    className="h-20 w-20 rounded-lg border border-slate-200 object-contain"
+                  />
+                  <button
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-white text-xs leading-none shadow transition hover:bg-slate-900"
+                    onClick={async () => {
+                      try {
+                        await deleteLogo();
+                        await upsertCurrentUserSettings({ logo_url: null });
+                      } catch {
+                        // Still clear locally even if the API call fails.
+                      }
+                      setLogoUrl('');
+                    }}
+                    aria-label="Remove saved logo"
+                  >
+                    ✕
+                  </button>
+                </div>
               )}
 
               <div
