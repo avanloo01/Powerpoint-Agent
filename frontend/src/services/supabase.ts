@@ -11,6 +11,21 @@ export const SETTINGS_TABLE = import.meta.env.VITE_SUPABASE_SETTINGS_TABLE || 'u
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+export function hasStoredSession(): boolean {
+  try {
+    const key = Object.keys(localStorage).find(
+      (k) => k.startsWith('sb-') && k.endsWith('-auth-token')
+    );
+    if (!key) return false;
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return !!(parsed?.access_token);
+  } catch {
+    return false;
+  }
+}
+
 export interface UserSettings {
   api_key: string | null;
   primary_color: string | null;

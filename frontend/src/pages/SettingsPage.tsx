@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getLogoUploadUrl } from '../services/api';
 import {
   getCurrentUserSettings,
+  hasStoredSession,
   supabase,
   upsertCurrentUserSettings,
 } from '../services/supabase';
@@ -18,7 +19,7 @@ const SettingsPage: React.FC = () => {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(hasStoredSession);
 
   const [apiKey, setApiKey] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#C00000');
