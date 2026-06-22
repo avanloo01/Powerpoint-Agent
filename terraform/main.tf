@@ -338,10 +338,13 @@ resource "aws_lambda_permission" "upload_logo_url" {
 }
 
 # Starting October 2025, Function URLs require a SECOND permission
-# (lambda:InvokeFunction with lambda:InvokedViaFunctionUrl condition).
-# This is NOT auto-created by terraform — must be added explicitly.
-# Managed via AWS CLI: aws lambda add-permission ... --invoked-via-function-url
-# Imported into terraform state to prevent drift.
+# (lambda:InvokeFunction). Without it the Function URL returns 403.
+resource "aws_lambda_permission" "upload_logo_invoke" {
+  statement_id  = "FunctionURLAllowInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.upload_logo.function_name
+  principal     = "*"
+}
 
 resource "aws_lambda_function_url" "start_job" {
   function_name      = aws_lambda_function.start_job.function_name
@@ -354,6 +357,14 @@ resource "aws_lambda_permission" "start_job_url" {
   function_name          = aws_lambda_function.start_job.function_name
   principal              = "*"
   function_url_auth_type = "NONE"
+}
+
+# Second permission required since October 2025.
+resource "aws_lambda_permission" "start_job_invoke" {
+  statement_id  = "FunctionURLAllowInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.start_job.function_name
+  principal     = "*"
 }
 
 # ─────────────────────────────────────────────
