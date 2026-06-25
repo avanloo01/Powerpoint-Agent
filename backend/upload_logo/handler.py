@@ -128,30 +128,38 @@ def _handle_post(s3, user_id: str, region: str, event: dict) -> dict:
 
 def _handle_delete(s3, user_id: str, region: str) -> dict:
     """Delete all logo objects for the given user from S3."""
+    if not S3_LOGO_BUCKET:
+        raise RuntimeError("LOGO_BUCKET environment variable is not set")
+
     prefix = f"logo/{user_id}/"
 
-    # List all objects under the user's logo prefix.
-    objects_to_delete: list[dict] = []
-    paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=S3_LOGO_BUCKET, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            objects_to_delete.append({"Key": obj["Key"]})
+    try:
+        # List all objects under the user's logo prefix.
+        objects_to_delete: list[dict] = []
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=S3_LOGO_BUCKET, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                objects_to_delete.append({"Key": obj["Key"]})
 
-    if objects_to_delete:
-        s3.delete_objects(
-            Bucket=S3_LOGO_BUCKET,
-            Delete={"Objects": objects_to_delete},
-        )
-        logger.info(
-            "Deleted %d logo object(s) for user=%s: %s",
-            len(objects_to_delete),
-            user_id,
-            [o["Key"] for o in objects_to_delete],
-        )
-    else:
-        logger.info("No logo objects to delete for user=%s", user_id)
+        if objects_to_delete:
+            s3.delete_objects(
+                Bucket=S3_LOGO_BUCKET,
+                Delete={"Objects": objects_to_delete},
+            )
+            logger.info(
+                "Deleted %d logo object(s) for user=%s: %s",
+                len(objects_to_delete),
+                user_id,
+                [o["Key"] for o in objects_to_delete],
+            )
+        else:
+            logger.info("No logo objects to delete for user=%s", user_id)
 
-    return _response(200, {"deleted": True})
+        return _response(200, {"deleted": True})
+
+    except Exception:
+        logger.exception("Failed to delete logo objects for user=%s", user_id)
+        return _response(500, {"error": "Failed to delete logo from S3"})
 
 
 def _response(status_code: int, body: dict) -> dict:

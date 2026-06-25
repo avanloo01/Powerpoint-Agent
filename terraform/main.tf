@@ -181,6 +181,8 @@ resource "aws_iam_role_policy" "lambda_s3" {
         Action = [
           "s3:PutObject",
           "s3:GetObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
           "s3:GeneratePresignedUrl"
         ]
         Resource = [
