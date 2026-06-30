@@ -68,6 +68,7 @@ jobs:
       - name: Deploy agent_loop
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
+          pip install -r agent_loop/requirements.txt -t agent_loop/
           cd agent_loop && zip -r ../agent_loop.zip . && cd ..
           aws lambda update-function-code \
             --function-name pptx-agent-agent-loop \
@@ -77,6 +78,7 @@ jobs:
       - name: Deploy start_job
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
+          pip install -r start_job/requirements.txt -t start_job/
           cd start_job && zip -r ../start_job.zip . && cd ..
           aws lambda update-function-code \
             --function-name pptx-agent-start-job \
@@ -86,6 +88,7 @@ jobs:
       - name: Deploy upload_logo
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
+          pip install -r upload_logo/requirements.txt -t upload_logo/
           cd upload_logo && zip -r ../upload_logo.zip . && cd ..
           aws lambda update-function-code \
             --function-name pptx-agent-upload-logo \
