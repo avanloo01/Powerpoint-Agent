@@ -182,11 +182,19 @@ resource "aws_iam_role_policy" "lambda_s3" {
           "s3:PutObject",
           "s3:GetObject",
           "s3:DeleteObject",
-          "s3:ListBucket",
           "s3:GeneratePresignedUrl"
         ]
         Resource = [
           "${aws_s3_bucket.storage.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.storage.arn
         ]
       }
     ]
