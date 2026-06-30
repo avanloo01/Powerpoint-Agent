@@ -333,7 +333,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
     s3 = boto3.client("s3")
 
     try:
-        # ── Stage 0: Download logo & upload docs to Dashscope ──────────────
+        # ── Stage 0: Download logo ─────────────────────────────────────────
         logo_bytes: bytes | None = None
         logo_url = settings.get("logo_url", "")
         if logo_url:
@@ -344,29 +344,9 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             except Exception:  # noqa: BLE001 – non-critical; proceed without logo
                 logo_bytes = None
 
-        # Upload reference documents to Dashscope Files API, get file IDs
-        dashscope_file_ids: list[str] = []
-        if file_ids:
-            _update_job(job_id, stage_message="Loading your documents\u2026")
-            for key in file_ids:
-                try:
-                    obj = s3.get_object(Bucket=S3_OUTPUT_BUCKET, Key=key)
-                    file_bytes = obj["Body"].read()
-                    filename = key.split("/")[-1] or "document"
-
-                    # Upload to Dashscope via OpenAI SDK
-                    ds_file = client.files.create(
-                        file=(filename, file_bytes),
-                        purpose="file-extract",
-                    )
-                    if ds_file and ds_file.id:
-                        dashscope_file_ids.append(ds_file.id)
-                except Exception:  # noqa: BLE001 – skip unavailable docs
-                    pass
-
-        # Build prompt with fileid:// references
-        doc_refs = "".join(f"fileid://{fid}\n" for fid in dashscope_file_ids)
-        augmented_prompt = f"{doc_refs}{prompt}" if dashscope_file_ids else prompt
+        # Build prompt with fileid:// references (file_ids are Dashscope IDs)
+        doc_refs = "".join(f"fileid://{fid}\n" for fid in file_ids)
+        augmented_prompt = f"{doc_refs}{prompt}" if file_ids else prompt
 
         # ── Stage 1: Research ───────────────────────────────────────────────
         research_md = _research(augmented_prompt, client, job_id)
