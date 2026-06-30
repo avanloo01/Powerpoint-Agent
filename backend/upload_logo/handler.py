@@ -21,12 +21,20 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
 # Map MIME types to safe file extensions.
 _MIME_TO_EXT = {
+    # Images
     "image/png": "png",
     "image/jpeg": "jpg",
     "image/svg+xml": "svg",
     "image/webp": "webp",
     "image/gif": "gif",
     "image/bmp": "bmp",
+    # Documents
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "text/plain": "txt",
+    "text/markdown": "md",
+    "text/csv": "csv",
 }
 
 
@@ -103,27 +111,35 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
 
 
 def _handle_post(s3, user_id: str, region: str, event: dict) -> dict:
-    """Generate a presigned PUT URL for uploading a logo."""
+    """Generate a presigned PUT URL for uploading a logo or document."""
     body = json.loads(event.get("body") or "{}")
     file_type: str = body.get("fileType", "image/png")
+    upload_type: str = body.get("type", "logo")  # "logo" or "doc"
     ext = _file_extension(file_type)
-    logo_key = f"logo/{user_id}/company_logo.{ext}"
+
+    if upload_type == "doc":
+        import uuid as _uuid
+
+        doc_id = str(_uuid.uuid4())
+        key = f"docs/{user_id}/{doc_id}.{ext}"
+    else:
+        key = f"logo/{user_id}/company_logo.{ext}"
 
     upload_url = s3.generate_presigned_url(
         "put_object",
         Params={
             "Bucket": S3_LOGO_BUCKET,
-            "Key": logo_key,
+            "Key": key,
             "ContentType": file_type,
         },
         ExpiresIn=300,
         HttpMethod="PUT",
     )
 
-    public_url = f"https://{S3_LOGO_BUCKET}.s3.{region}.amazonaws.com/{logo_key}"
+    public_url = f"https://{S3_LOGO_BUCKET}.s3.{region}.amazonaws.com/{key}"
 
-    logger.info("Generated presigned URL for user=%s key=%s", user_id, logo_key)
-    return _response(200, {"uploadUrl": upload_url, "publicUrl": public_url})
+    logger.info("Generated presigned URL for user=%s type=%s key=%s", user_id, upload_type, key)
+    return _response(200, {"uploadUrl": upload_url, "publicUrl": public_url, "key": key})
 
 
 def _handle_delete(s3, user_id: str, region: str) -> dict:

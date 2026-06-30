@@ -8,6 +8,7 @@ const MAX_POLL_ATTEMPTS = 150; // 5 minutes max
 
 export interface GenerateRequest {
   prompt: string;
+  fileIDs?: string[];
 }
 
 export interface JobStatus {
@@ -25,7 +26,7 @@ export async function startGeneration(req: GenerateRequest): Promise<string> {
   const token = await getAccessToken();
   const response = await axios.post<{ jobId: string }>(
     GENERATE_URL,
-    { prompt: req.prompt },
+    { prompt: req.prompt, fileIDs: req.fileIDs },
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -109,4 +110,48 @@ export async function deleteLogo(): Promise<void> {
       Authorization: `Bearer ${token}`,
     },
   });
+}
+
+/**
+ * Uploads one or more documents by requesting a presigned URL from the
+ * upload_logo Lambda (with type=doc) and PUTting the file directly to S3.
+ * Returns the S3 keys so they can be passed to startGeneration as fileIDs.
+ */
+export async function uploadDocs(files: File[]): Promise<string[]> {
+  const token = await getAccessToken();
+  const keys: string[] = [];
+
+  for (const file of files) {
+    // 1. Get a presigned PUT URL for this document
+    const presignedResponse = await axios.post<{
+      uploadUrl: string;
+      publicUrl: string;
+      key: string;
+    }>(
+      UPLOAD_LOGO_URL,
+      { fileType: file.type || 'application/pdf', type: 'doc' },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    const { uploadUrl, key } = presignedResponse.data;
+
+    // 2. Upload the file directly to S3
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': file.type || 'application/pdf' },
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error(`Failed to upload ${file.name}`);
+    }
+
+    keys.push(key);
+  }
+
+  return keys;
 }
