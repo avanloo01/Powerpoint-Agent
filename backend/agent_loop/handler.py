@@ -191,13 +191,10 @@ You are an expert python-pptx developer. Write a Python function called
 python-pptx Presentation object `prs`. ONLY return the function code, no markdown fences or explanations.
 
 CONSTRAINTS:
-- `prs` already has slide_width = Inches(13.33), slide_height = Inches(7.5)
-- Use `prs.slide_layouts[6]` (blank layout) for every slide
-- DO NOT call Presentation() yourself — use the `prs` argument
-- Available names in scope: Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN,
-  ChartData, XL_CHART_TYPE, io, math, json
-- Return ONLY the Python function code, no markdown fences, no other text
-- The function must be syntactically valid Python 3.12
+- `prs` has slide_width=Inches(13.33), slide_height=Inches(7.5). Use slide_layouts[6] (blank).
+- DO NOT call Presentation() — use the `prs` argument.
+- Available: Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, io, math, json
+- Return ONLY valid Python 3.12 function code (no fences, no extra text).
 
 STYLE GUIDE:
 - If the layout is `title_slide`: fetch the image from the structure file's image URL, darken it using Pillow (`ImageEnhance.Brightness(img).enhance(0.6)`) and insert the darkened bytes as a full-slide background picture. On top, place the slide title centered on the slide in bold 54pt white text.
@@ -331,7 +328,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
 
     print(f"[{job_id}] Handler started. Prompt: {prompt[:100]}...")
 
-    client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL, timeout=300.0)
+    client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL, timeout=600.0)
     s3 = boto3.client("s3")
 
     try:
@@ -360,7 +357,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         # ── Stage 2: Structure ──────────────────────────────────────────────
         print(f"[{job_id}] Stage 2: Starting structure...")
         structure = _structure(prompt, research_md, client, job_id)
-        print(f"[{job_id}] Stage 2: Structure complete ({len(structure)} slides)")
+        print(f"[{job_id}] Stage 2: Structure complete ({len(structure.get('slides', []))} slides)")
         _update_job(job_id, structure_md=json.dumps(structure, indent=2))
 
         # ── Stage 3a: Generate code ─────────────────────────────────────────
