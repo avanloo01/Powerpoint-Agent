@@ -193,7 +193,7 @@ python-pptx Presentation object `prs`. ONLY return the function code, no markdow
 CONSTRAINTS:
 - `prs` has slide_width=Inches(13.33), slide_height=Inches(7.5). Use slide_layouts[6] (blank).
 - DO NOT call Presentation() — use the `prs` argument.
-- Available: Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, io, math, json
+- Available: Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, io, math, json, urlrequest (urllib.request), Image, ImageEnhance (PIL), BytesIO
 - Return ONLY valid Python 3.12 function code (no fences, no extra text).
 
 STYLE GUIDE:
@@ -252,13 +252,6 @@ def _execute(code: str, logo_bytes: bytes | None = None) -> bytes:
     """
     Execute the AI-generated build_presentation(prs, logo_bytes=...) function
     in a restricted namespace and return the resulting PPTX bytes.
-
-    Security notes:
-    - __builtins__ is replaced with a curated allowlist; __import__, open,
-      eval, and exec are excluded.
-    - os, sys, socket are not injected, preventing system/network access.
-    - python-pptx itself runs in its own module scope with full builtins, which
-      is fine because it is a vetted dependency, not user-supplied code.
     """
     import pptx
     import pptx.chart.data
@@ -266,6 +259,8 @@ def _execute(code: str, logo_bytes: bytes | None = None) -> bytes:
     import pptx.enum.chart
     import pptx.enum.text
     import pptx.util
+    from io import BytesIO
+    from PIL import Image, ImageEnhance
     from pptx import Presentation as _Prs
 
     # Strip markdown fences the model may have added
@@ -297,6 +292,11 @@ def _execute(code: str, logo_bytes: bytes | None = None) -> bytes:
         "io": io,
         "math": math,
         "json": json,
+        # image handling (used by title_slide & section_divider)
+        "urlrequest": urlrequest,
+        "Image": Image,
+        "ImageEnhance": ImageEnhance,
+        "BytesIO": BytesIO,
     }
 
     exec(code, namespace)  # noqa: S102
