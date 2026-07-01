@@ -117,7 +117,9 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
             return _response(400, {"error": "prompt is required"})
 
         job_id = str(uuid.uuid4())
+        print(f"[{job_id}] Creating job for user {user_id}, prompt: {prompt[:100]}...")
         _create_job(job_id, user_id)
+        print(f"[{job_id}] Job created, invoking agent-loop...")
 
         boto3.client("lambda").invoke(
             FunctionName=AGENT_LOOP_FUNCTION_NAME,
@@ -135,11 +137,14 @@ def handler(event: dict, context) -> dict:  # noqa: ANN001
             }).encode("utf-8"),
         )
 
+        print(f"[{job_id}] Agent-loop invoked successfully")
         return _response(200, {"jobId": job_id})
 
-    except ValueError:
+    except ValueError as exc:
+        print(f"[start_job] Auth error: {exc}")
         return _response(401, {"error": "Unauthorized"})
     except Exception as exc:  # noqa: BLE001
+        print(f"[start_job] Error: {exc}")
         return _response(500, {"error": str(exc)})
 
 

@@ -329,11 +329,14 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
     api_key: str = settings.get("api_key", "")
     file_ids: list[str] = event.get("file_ids") or []
 
-    client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL)
+    print(f"[{job_id}] Handler started. Prompt: {prompt[:100]}...")
+
+    client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL, timeout=120.0)
     s3 = boto3.client("s3")
 
     try:
         # ── Stage 0: Download logo ─────────────────────────────────────────
+        print(f"[{job_id}] Stage 0: Checking for logo...")
         logo_bytes: bytes | None = None
         logo_url = settings.get("logo_url", "")
         if logo_url:
@@ -349,26 +352,35 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         augmented_prompt = f"{doc_refs}{prompt}" if file_ids else prompt
 
         # ── Stage 1: Research ───────────────────────────────────────────────
+        print(f"[{job_id}] Stage 1: Starting research...")
         research_md = _research(augmented_prompt, client, job_id)
+        print(f"[{job_id}] Stage 1: Research complete ({len(research_md)} chars)")
         _update_job(job_id, research_md=research_md)
 
         # ── Stage 2: Structure ──────────────────────────────────────────────
+        print(f"[{job_id}] Stage 2: Starting structure...")
         structure = _structure(prompt, research_md, client, job_id)
+        print(f"[{job_id}] Stage 2: Structure complete ({len(structure)} slides)")
         _update_job(job_id, structure_md=json.dumps(structure, indent=2))
 
         # ── Stage 3a: Generate code ─────────────────────────────────────────
+        print(f"[{job_id}] Stage 3a: Generating PPTX code...")
         pptx_code = _build_code(structure, settings, client, job_id, has_logo=logo_bytes is not None)
+        print(f"[{job_id}] Stage 3a: Code generation complete ({len(pptx_code)} chars)")
         _update_job(job_id, pptx_code=pptx_code)
 
         # ── Stage 3b: Execute with up to 3 self-correction attempts ─────────
+        print(f"[{job_id}] Stage 3b: Executing generated code...")
         pptx_bytes: bytes | None = None
         last_error = ""
 
         for attempt in range(3):
             try:
                 pptx_bytes = _execute(pptx_code, logo_bytes=logo_bytes)
+                print(f"[{job_id}] Stage 3b: Execution succeeded on attempt {attempt + 1}")
                 break
             except Exception as exc:  # noqa: BLE001
+                print(f"[{job_id}] Stage 3b: Attempt {attempt + 1} failed: {exc}")
                 last_error = str(exc)
                 if attempt < 2:
                     fix_response = client.chat.completions.create(
@@ -390,6 +402,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             raise RuntimeError(f"Code execution failed after 3 attempts. Last error: {last_error}")
 
         # ── Upload to S3 ────────────────────────────────────────────────────
+        print(f"[{job_id}] Stage 4: Uploading to S3...")
         key = f"presentations/{job_id}.pptx"
         s3.put_object(
             Bucket=S3_OUTPUT_BUCKET,
@@ -412,8 +425,10 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             stage_message="Your presentation is ready!",
             download_url=download_url,
         )
+        print(f"[{job_id}] DONE. Download: {download_url}")
 
     except Exception as exc:  # noqa: BLE001
+        print(f"[{job_id}] ERROR: {exc}")
         _update_job(
             job_id,
             status="error",

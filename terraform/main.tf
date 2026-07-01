@@ -274,6 +274,12 @@ resource "aws_cloudwatch_log_group" "agent_loop" {
   tags              = local.common_tags
 }
 
+# Disable async retries — timeouts should not re-trigger the job from scratch
+resource "aws_lambda_function_event_invoke_config" "agent_loop" {
+  function_name          = aws_lambda_function.agent_loop.function_name
+  maximum_retry_attempts = 0
+}
+
 resource "aws_iam_role_policy" "lambda_invoke_agent_loop" {
   name = "${var.project_name}-lambda-invoke-agent-loop"
   role = aws_iam_role.lambda_exec.id
