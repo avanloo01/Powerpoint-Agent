@@ -45,6 +45,7 @@ jobs:
             backend/agent_loop/requirements.txt
             backend/upload_logo/requirements.txt
             backend/start_job/requirements.txt
+            backend/build_slides/requirements.txt
 
       - name: Install dependencies
         run: |
@@ -55,7 +56,7 @@ jobs:
           pip install -r start_job/requirements.txt
 
       - name: Lint with ruff
-        run: ruff check agent_loop upload_logo start_job
+        run: ruff check agent_loop upload_logo start_job build_slides
 
       - name: Configure AWS credentials
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -93,6 +94,16 @@ jobs:
           aws lambda update-function-code \
             --function-name pptx-agent-upload-logo \
             --zip-file fileb://upload_logo.zip \
+            --no-cli-pager
+
+      - name: Deploy build_slides
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          pip install -r build_slides/requirements.txt -t build_slides/
+          cd build_slides && zip -r ../build_slides.zip . && cd ..
+          aws lambda update-function-code \
+            --function-name pptx-agent-build-slides \
+            --zip-file fileb://build_slides.zip \
             --no-cli-pager
 
 

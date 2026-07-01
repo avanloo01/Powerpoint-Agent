@@ -260,10 +260,11 @@ resource "aws_lambda_function" "agent_loop" {
 
   environment {
     variables = {
-      OUTPUT_BUCKET             = aws_s3_bucket.storage.id
-      QWEN_MODEL                = var.qwen_model
-      SUPABASE_URL              = var.supabase_url
-      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      OUTPUT_BUCKET              = aws_s3_bucket.storage.id
+      QWEN_MODEL                 = var.qwen_model
+      SUPABASE_URL               = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY  = var.supabase_service_role_key
+      BUILD_SLIDES_FUNCTION_NAME = aws_lambda_function.build_slides.function_name
     }
   }
 }
@@ -290,7 +291,10 @@ resource "aws_iam_role_policy" "lambda_invoke_agent_loop" {
       {
         Effect = "Allow"
         Action = ["lambda:InvokeFunction"]
-        Resource = [aws_lambda_function.agent_loop.arn]
+        Resource = [
+          aws_lambda_function.agent_loop.arn,
+          aws_lambda_function.build_slides.arn,
+        ]
       }
     ]
   })
@@ -332,6 +336,49 @@ resource "aws_cloudwatch_log_group" "start_job" {
   name              = "/aws/lambda/${aws_lambda_function.start_job.function_name}"
   retention_in_days = 14
   tags              = local.common_tags
+}
+
+# ─────────────────────────────────────────────
+# Lambda — build_slides
+# ─────────────────────────────────────────────
+
+data "archive_file" "build_slides" {
+  type        = "zip"
+  source_dir  = "${path.module}/../backend/build_slides"
+  output_path = "${path.module}/.terraform/lambda_zips/build_slides.zip"
+}
+
+resource "aws_lambda_function" "build_slides" {
+  function_name    = "${var.project_name}-build-slides"
+  filename         = data.archive_file.build_slides.output_path
+  source_code_hash = data.archive_file.build_slides.output_base64sha256
+  role             = aws_iam_role.lambda_exec.arn
+  handler          = "handler.handler"
+  runtime          = "python3.12"
+  timeout          = 900
+  memory_size      = 512
+  tags             = local.common_tags
+
+  environment {
+    variables = {
+      OUTPUT_BUCKET             = aws_s3_bucket.storage.id
+      QWEN_MODEL                = var.qwen_model
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+    }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "build_slides" {
+  name              = "/aws/lambda/${aws_lambda_function.build_slides.function_name}"
+  retention_in_days = 14
+  tags              = local.common_tags
+}
+
+# Disable async retries for build_slides too
+resource "aws_lambda_function_event_invoke_config" "build_slides" {
+  function_name          = aws_lambda_function.build_slides.function_name
+  maximum_retry_attempts = 0
 }
 
 # ─────────────────────────────────────────────
