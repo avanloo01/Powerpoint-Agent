@@ -254,7 +254,7 @@ resource "aws_lambda_function" "agent_loop" {
   role             = aws_iam_role.lambda_exec.arn
   handler          = "handler.handler"
   runtime          = "python3.12"
-  timeout          = 300
+  timeout          = 900
   memory_size      = 512
   tags             = local.common_tags
 
