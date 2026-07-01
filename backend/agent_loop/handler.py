@@ -331,7 +331,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
 
     print(f"[{job_id}] Handler started. Prompt: {prompt[:100]}...")
 
-    client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL, timeout=120.0)
+    client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL, timeout=300.0)
     s3 = boto3.client("s3")
 
     try:
