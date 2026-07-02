@@ -71,7 +71,7 @@ CONSTRAINTS:
 - DO NOT call Presentation() — use the `prs` argument.
 - DO NOT write ANY import statements. The following names are already injected as
   global variables and can be used directly without importing:
-  Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE,
+  Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, MSO_SHAPE,
   io, math, json, urlrequest (urllib.request), Image, ImageEnhance (PIL), BytesIO
 - Return ONLY valid Python 3.12 function code (no fences, no extra text).
 
@@ -94,10 +94,10 @@ STYLE GUIDE (concise):
   4. Subtitle textbox: x=Cm(6.27), y=Cm(16.6), section label RGB(128,128,128) 16pt
 - Slide bg: white. Section label: top-left 9pt RGB(128,128,128). Slide title: bold 22pt black below label.
 - Box headers: primary-fill rects, white bold 12pt text, with padding (don't span full column width).
-- Column separators: 0.5pt light-gray line centered between columns. Causal: add triangle arrow mid-line.
+- Column separators: 0.5pt light-gray line centered between columns, height matching the column content height only (from top of the first element in the columns to bottom of the last element, not extending into section label/title or conclusion/sources). Causal: use add_shape with MSO_SHAPE.DIAMOND (filled, accent color, ~10pt × ~6pt, centered on the line midpoint).
 - Bullets: filled circle + bold title + description text.
 - Charts: ChartData + slide.shapes.add_chart().
-- Conclusion: 1pt primary border, centered italic 11pt, width = single-column width.
+- Conclusion: 1pt primary border, centered italic 11pt, width = FULL content width (spanning all columns, matching the combined column area).
 - Sources: bottom-left 8pt RGB(128,128,128).
 - Logo: if logo_bytes, place on EVERY slide top-right (0.5-0.7in tall, right edge aligns with rightmost column, top with section label/title). Use BytesIO(logo_bytes) + add_picture().
 - NO SHADOWS: On EVERY shape you create (rectangles, text boxes, dividers, borders, conclusion box, box headers, accent square, white rect on section dividers), set shape.shadow.inherit = False to remove any drop shadow. This gives slides a clean, flat look.
@@ -158,6 +158,7 @@ def _make_namespace() -> dict:
     import pptx.dml.color
     import pptx.enum.chart
     import pptx.enum.text
+    import pptx.enum.shapes
     import pptx.util
     from io import BytesIO
     from PIL import Image, ImageEnhance
@@ -185,6 +186,7 @@ def _make_namespace() -> dict:
         "PP_ALIGN": pptx.enum.text.PP_ALIGN,
         "ChartData": pptx.chart.data.ChartData,
         "XL_CHART_TYPE": pptx.enum.chart.XL_CHART_TYPE,
+        "MSO_SHAPE": pptx.enum.shapes.MSO_SHAPE,
         "io": io,
         "math": math,
         "json": json,
