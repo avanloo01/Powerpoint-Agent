@@ -104,7 +104,7 @@ def _build_code(structure: dict, settings: dict, client: OpenAI, job_id: str, ha
         f"Presentation structure:\n{json.dumps(structure, indent=2)}"
     )
     prompt_len = len(_BUILD_SYSTEM) + len(user_msg)
-        print(f"[{job_id}] API call starting (prompt ~{prompt_len} chars, max_tokens=16000)...")
+    print(f"[{job_id}] API call starting (prompt ~{prompt_len} chars, max_tokens=16000)...")
     response = client.chat.completions.create(
         model=QWEN_MODEL,
         messages=[
