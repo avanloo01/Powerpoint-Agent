@@ -63,9 +63,18 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
     system = (
         "You are a research analyst preparing materials for a business presentation. "
         "Use web search to gather current facts, statistics, trends and examples. "
-        "Produce a thorough markdown document covering: key facts and useful tables with data that can be used in charts, "
-        "notable examples or case studies, and key takeaways. "
-        "Include specific numbers and dates where available."
+        "Produce a thorough markdown document with these sections:\n"
+        "1. **Chart-Ready Data Tables** (MOST IMPORTANT): For every major finding, include a "
+        "structured markdown table with numerical data suitable for charts (bar, line, pie, grouped_bar). "
+        "Each table must have clear column headers and multiple rows of comparable data. "
+        "Look for: time-series trends, market-share breakdowns, regional comparisons, "
+        "financial metrics, survey results, rankings, before/after comparisons. "
+        "Aim for at least 4-6 distinct data tables covering different dimensions of the topic.\n"
+        "2. **Key Facts & Statistics**: bullet-point summary of the most important numbers.\n"
+        "3. **Notable Examples & Case Studies**: concrete real-world examples with specific data.\n"
+        "4. **Key Takeaways**: 3-5 actionable insights.\n"
+        "Always include specific numbers, dates, percentages, and units. "
+        "When data is scarce on one dimension, search for proxy or adjacent data that still supports the narrative."
     )
     response = client.chat.completions.create(
         model=QWEN_MODEL,
@@ -80,12 +89,17 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
 
     # ── Image search for title / section-divider backgrounds ───────────────
     image_prompt = (
-        f"Find 4-5 high-quality, professional background images suitable for a "
-        f"business presentation about: {prompt}. The images should be simple "
-        f", modern, and work well as full-slide backgrounds for a title "
-        f"slide and section dividers. Search for broad visual concepts related to "
-        f"the topic rather than specific data or charts. For each image found, "
-        f"include its URL. Examples could be 'data center' for a presentation covering a paper on data center spatial distribution or 'smartphone factory' for a presentation on the company Transsion"
+        f"Find 4-5 high-quality, professional background images for a business "
+        f"presentation on this specific topic: '{prompt}'. "
+        f"The images must be DIRECTLY RELEVANT to the core subject matter — not generic "
+        f"office or business stock photos. They should be simple, modern, and work well "
+        f"as full-slide backgrounds (title slide and section dividers). "
+        f"For each topic, identify its most iconic visual elements and search for those specifically. "
+        f"For example: for 'electric vehicles' search for 'EV charging station', 'electric car assembly line', "
+        f"'lithium battery production'; for 'remote work trends' search for 'modern home office setup', "
+        f"'distributed team collaboration'. "
+        f"Avoid abstract concepts like 'growth arrow' or 'handshake' — pick images that tell the topic's story at a glance. "
+        f"For each image found, include its URL."
     )
     try:
         image_response = client.responses.create(
@@ -150,7 +164,8 @@ Rules:
 - title_slide: the title of this slide is the presentation title. No other content is needed.
 - section_divider: for the title of the slide, write an interesting question that covers the content of that section; for the section_label, give the name of the section. No other content is needed.
 - image_url: the research document should contain images that can be used as the background for the title slide and section divider slides. Use the urls available for relevant title slides and section divider slides. If no relevant image is found, set image_url to null.
-- For charts: always include ACTUAL data matching the research findings
+- CHART PRIORITY (critical): Use charts as your DEFAULT content type whenever numerical data exists in the research. At least 40-50% of content slides should contain a chart. Only use bullet_list or text when the data genuinely cannot be charted or you refer to an actual list. Prefer line for trends, pie for composition, bar for rankings, grouped_bar for comparisons.
+- For charts: always include ACTUAL data matching the research findings. Every chart must have at least 3 data points (x_labels) to be meaningful.
 - For sources, write the author in the sources field (this will appear on the slide), write the actual url in the notes field (this will not appear on the slide but is useful for the user)
 - Use 12–15 slides total; group related slides under the same section_label
 """)
