@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { startGeneration, pollJobStatus, uploadDocs, type JobStatus } from '../services/api';
-import { getCurrentUserSettings, hasStoredSession, supabase } from '../services/supabase';
+import { getCurrentUserSettings, getLoginCookie, supabase } from '../services/supabase';
 
 const STAGE_EMOJIS: Record<string, string> = {
   pending: '⏳',
@@ -19,7 +19,7 @@ const HomePage: React.FC = () => {
   const [error, setError] = useState('');
   const [downloadUrl, setDownloadUrl] = useState('');
   const [stageMessage, setStageMessage] = useState('');
-  const [isLoggedIn, setIsLoggedIn] = useState(hasStoredSession);
+  const [isLoggedIn, setIsLoggedIn] = useState(getLoginCookie);
   const [primaryColor, setPrimaryColor] = useState('#C00000');
   const [hasApiKey, setHasApiKey] = useState(false);
 

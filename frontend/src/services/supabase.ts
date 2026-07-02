@@ -11,6 +11,46 @@ export const SETTINGS_TABLE = import.meta.env.VITE_SUPABASE_SETTINGS_TABLE || 'u
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// ── Cookie helpers ──────────────────────────────────────────────
+const LOGIN_COOKIE = 'ppt-agent-authorized';
+
+export function getLoginCookie(): boolean {
+  try {
+    return document.cookie
+      .split('; ')
+      .some((c) => c.startsWith(`${LOGIN_COOKIE}=true`));
+  } catch {
+    return false;
+  }
+}
+
+function setLoginCookie(): void {
+  try {
+    // Expires in 7 days, secure + sameSite for production safety
+    document.cookie = `${LOGIN_COOKIE}=true; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+  } catch {
+    // Silently fail — the cookie is a cache, not the source of truth
+  }
+}
+
+function clearLoginCookie(): void {
+  try {
+    document.cookie = `${LOGIN_COOKIE}=; path=/; max-age=0`;
+  } catch {
+    // Silently fail
+  }
+}
+
+// Keep cookie in sync with Supabase auth state changes
+supabase.auth.onAuthStateChange((event) => {
+  if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+    setLoginCookie();
+  } else if (event === 'SIGNED_OUT') {
+    clearLoginCookie();
+  }
+});
+
+// ── Legacy localStorage check (fallback) ───────────────────────
 export function hasStoredSession(): boolean {
   try {
     const key = Object.keys(localStorage).find(

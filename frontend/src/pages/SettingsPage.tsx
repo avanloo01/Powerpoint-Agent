@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { deleteLogo, getLogoUploadUrl } from '../services/api';
 import {
   getCurrentUserSettings,
-  hasStoredSession,
+  getLoginCookie,
   supabase,
   upsertCurrentUserSettings,
 } from '../services/supabase';
@@ -19,7 +19,7 @@ const SettingsPage: React.FC = () => {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoggedIn, setIsLoggedIn] = useState(hasStoredSession);
+  const [isLoggedIn, setIsLoggedIn] = useState(getLoginCookie);
 
   const [apiKey, setApiKey] = useState('');
   const [primaryColor, setPrimaryColor] = useState('#C00000');
