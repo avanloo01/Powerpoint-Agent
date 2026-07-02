@@ -166,6 +166,7 @@ Rules:
 - image_url: the research document should contain images that can be used as the background for the title slide and section divider slides. Use the urls available for relevant title slides and section divider slides. If no relevant image is found, set image_url to null.
 - CHART PRIORITY (critical): Use charts as your DEFAULT content type whenever numerical data exists in the research. At least 40-50% of content slides should contain a chart. Only use bullet_list or text when the data genuinely cannot be charted or you refer to an actual list. Prefer line for trends, pie for composition, bar for rankings, grouped_bar for comparisons.
 - For charts: always include ACTUAL data matching the research findings. Every chart must have at least 3 data points (x_labels) to be meaningful.
+- CONCLUSION BOXES: Add conclusion_box to content slides as much as possible. Each conclusion box should capture the causal "so what?". Frame it as a decisive, forward-looking statement (1-2 sentences). This creates a causal thread connecting slides throughout the presentation.
 - For sources, write the author in the sources field (this will appear on the slide), write the actual url in the notes field (this will not appear on the slide but is useful for the user)
 - Use 12–15 slides total; group related slides under the same section_label
 """)
