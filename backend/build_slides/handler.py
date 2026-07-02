@@ -100,6 +100,7 @@ STYLE GUIDE (concise):
 - Conclusion: 1pt primary border, centered italic 11pt, width = single-column width.
 - Sources: bottom-left 8pt RGB(128,128,128).
 - Logo: if logo_bytes, place on EVERY slide top-right (0.5-0.7in tall, right edge aligns with rightmost column, top with section label/title). Use BytesIO(logo_bytes) + add_picture().
+- NO SHADOWS: On EVERY shape you create (rectangles, text boxes, dividers, borders, conclusion box, box headers, accent square, white rect on section dividers), set shape.shadow.inherit = False to remove any drop shadow. This gives slides a clean, flat look.
 """)
 
 
