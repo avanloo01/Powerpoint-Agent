@@ -89,9 +89,13 @@ STYLE GUIDE (concise):
 - title_slide: download image, darken (ImageEnhance.Brightness, factor 0.6), insert as full-slide bg. Title bold 54pt white, centered.
 - section_divider: download & darken image as full-slide bg, then in order:
   1. White rect: x=0, y=sh-Cm(5.74), w=sw, h=Cm(5.74)
-  2. Accent square (primary fill): x=0, same y, w=h=Cm(5.74), section number bold white 48pt centered
-  3. Title textbox: x=Cm(6.27), y=Cm(14.7), w=sw-Cm(6.27), h=Cm(3.5), bold black 32pt
-  4. Subtitle textbox: x=Cm(6.27), y=Cm(16.6), section label RGB(128,128,128) 16pt
+  2. Number square (fill with PRIMARY color RGBColor(primary_hex), NOT accent):
+     x=0, y=sh-Cm(5.74), w=Cm(5.74), h=Cm(5.74).
+     Display slide["section_number"] formatted as TWO DIGITS (e.g. "01", "02", "03"),
+     white bold 48pt. Center BOTH horizontally (PP_ALIGN.CENTER) AND vertically
+     (set text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE).
+  3. Title textbox (the question): x=Cm(6.27), y=Cm(14.0), w=sw-Cm(6.27)-Cm(1.0), h=Cm(1.0), bold black 32pt
+  4. Section label textbox: x=Cm(6.27), y=Cm(15.2), w=sw-Cm(6.27)-Cm(1.0), h=Cm(0.6), RGBColor(128,128,128) 16pt
 - Slide bg: white. Section label: top-left 9pt RGB(128,128,128). Slide title: bold 22pt black below label.
 - Box headers: primary-fill rects, white bold 12pt text, with padding (don't span full column width).
 - Column separators: 0.5pt light-gray line centered between columns, height matching the column content height only (from top of the first element in the columns to bottom of the last element, not extending into section label/title or conclusion/sources). Causal: use add_shape with MSO_SHAPE.DIAMOND (filled, accent color, ~10pt × ~6pt, centered on the line midpoint).
@@ -100,7 +104,7 @@ STYLE GUIDE (concise):
 - Conclusion: 1pt primary border, centered italic 11pt, width = FULL content width (spanning all columns, matching the combined column area).
 - Sources: bottom-left 8pt RGB(128,128,128).
 - Logo: if logo_bytes, place on EVERY slide top-right (0.5-0.7in tall, right edge aligns with rightmost column, top with section label/title). Use BytesIO(logo_bytes) + add_picture().
-- NO SHADOWS: On EVERY shape you create (rectangles, text boxes, dividers, borders, conclusion box, box headers, accent square, white rect on section dividers), set shape.shadow.inherit = False to remove any drop shadow. This gives slides a clean, flat look.
+- NO SHADOWS: On EVERY shape you create (rectangles, text boxes, dividers, borders, conclusion box, box headers, number square, white rect on section dividers), set shape.shadow.inherit = False to remove any drop shadow. This gives slides a clean, flat look.
 """)
 
 
@@ -193,6 +197,8 @@ def _make_namespace() -> dict:
         "ChartData": pptx.chart.data.ChartData,
         "XL_CHART_TYPE": pptx.enum.chart.XL_CHART_TYPE,
         "MSO_SHAPE": pptx.enum.shapes.MSO_SHAPE,
+        "MSO_ANCHOR": pptx.enum.text.MSO_ANCHOR,
+        "MSO_AUTO_SIZE": pptx.enum.text.MSO_AUTO_SIZE,
         "io": io,
         "math": math,
         "json": json,
@@ -274,8 +280,15 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             print(f"[{job_id}] Stage 0.5: No icons referenced in structure")
         has_icons = len(icons) > 0
 
-        # ── Stage 1: Build slides in batches ──────────────────────────────
+        # ── Pre-compute section numbers for divider slides ─────────────────
         slides: list = structure.get("slides", [])
+        section_num = 0
+        for slide in slides:
+            if slide.get("layout") == "section_divider":
+                section_num += 1
+                slide["section_number"] = section_num
+
+        # ── Stage 1: Build slides in batches ──────────────────────────────
         total_slides = len(slides)
         has_logo = logo_bytes is not None
 
