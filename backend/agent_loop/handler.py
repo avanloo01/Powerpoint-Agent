@@ -172,7 +172,7 @@ def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> di
             {"role": "user", "content": f"Topic: {prompt}\n\nResearch:\n{research_md}"},
         ],
         response_format={"type": "json_object"},
-        max_tokens=6000,
+        max_tokens=16000,
     )
     raw = response.choices[0].message.content or "{}"
     return json.loads(raw)
