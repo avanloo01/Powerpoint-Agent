@@ -54,9 +54,10 @@ jobs:
           pip install -r agent_loop/requirements.txt
           pip install -r upload_logo/requirements.txt
           pip install -r start_job/requirements.txt
+          pip install -r build_slides/requirements.txt
 
       - name: Lint with ruff
-        run: ruff check agent_loop upload_logo start_job build_slides
+        run: ruff check agent_loop upload_logo start_job
 
       - name: Configure AWS credentials
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

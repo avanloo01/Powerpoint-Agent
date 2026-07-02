@@ -205,7 +205,19 @@ resource "aws_iam_role_policy" "lambda_s3" {
 # Lambda — upload_logo
 # ─────────────────────────────────────────────
 
+resource "null_resource" "pip_install_upload_logo" {
+  triggers = {
+    handler      = filemd5("${path.module}/../backend/upload_logo/handler.py")
+    requirements = filemd5("${path.module}/../backend/upload_logo/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = "cd ${path.module}/../backend/upload_logo && python3 -m pip install -r requirements.txt -t . --quiet"
+  }
+}
+
 data "archive_file" "upload_logo" {
+  depends_on  = [null_resource.pip_install_upload_logo]
   type        = "zip"
   source_dir  = "${path.module}/../backend/upload_logo"
   output_path = "${path.module}/.terraform/lambda_zips/upload_logo.zip"
@@ -241,7 +253,19 @@ resource "aws_cloudwatch_log_group" "upload_logo" {
 # Lambda — agent_loop
 # ─────────────────────────────────────────────
 
+resource "null_resource" "pip_install_agent_loop" {
+  triggers = {
+    handler      = filemd5("${path.module}/../backend/agent_loop/handler.py")
+    requirements = filemd5("${path.module}/../backend/agent_loop/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = "cd ${path.module}/../backend/agent_loop && python3 -m pip install -r requirements.txt -t . --quiet"
+  }
+}
+
 data "archive_file" "agent_loop" {
+  depends_on  = [null_resource.pip_install_agent_loop]
   type        = "zip"
   source_dir  = "${path.module}/../backend/agent_loop"
   output_path = "${path.module}/.terraform/lambda_zips/agent_loop.zip"
@@ -304,7 +328,19 @@ resource "aws_iam_role_policy" "lambda_invoke_agent_loop" {
 # Lambda — start_job
 # ─────────────────────────────────────────────
 
+resource "null_resource" "pip_install_start_job" {
+  triggers = {
+    handler      = filemd5("${path.module}/../backend/start_job/handler.py")
+    requirements = filemd5("${path.module}/../backend/start_job/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = "cd ${path.module}/../backend/start_job && python3 -m pip install -r requirements.txt -t . --quiet"
+  }
+}
+
 data "archive_file" "start_job" {
+  depends_on  = [null_resource.pip_install_start_job]
   type        = "zip"
   source_dir  = "${path.module}/../backend/start_job"
   output_path = "${path.module}/.terraform/lambda_zips/start_job.zip"
@@ -342,7 +378,19 @@ resource "aws_cloudwatch_log_group" "start_job" {
 # Lambda — build_slides
 # ─────────────────────────────────────────────
 
+resource "null_resource" "pip_install_build_slides" {
+  triggers = {
+    handler      = filemd5("${path.module}/../backend/build_slides/handler.py")
+    requirements = filemd5("${path.module}/../backend/build_slides/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = "cd ${path.module}/../backend/build_slides && python3 -m pip install -r requirements.txt -t . --quiet"
+  }
+}
+
 data "archive_file" "build_slides" {
+  depends_on  = [null_resource.pip_install_build_slides]
   type        = "zip"
   source_dir  = "${path.module}/../backend/build_slides"
   output_path = "${path.module}/.terraform/lambda_zips/build_slides.zip"
