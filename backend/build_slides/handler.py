@@ -68,8 +68,10 @@ python-pptx Presentation object `prs`. ONLY return the function code, no markdow
 CONSTRAINTS:
 - `prs` has slide_width=Inches(13.33), slide_height=Inches(7.5). Use slide_layouts[6] (blank).
 - DO NOT call Presentation() — use the `prs` argument.
-- Available: Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, io, math, json,
-  urlrequest (urllib.request), Image, ImageEnhance (PIL), BytesIO
+- DO NOT write ANY import statements. The following names are already injected as
+  global variables and can be used directly without importing:
+  Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE,
+  io, math, json, urlrequest (urllib.request), Image, ImageEnhance (PIL), BytesIO
 - Return ONLY valid Python 3.12 function code (no fences, no extra text).
 
 STYLE GUIDE (concise):
@@ -239,7 +241,9 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                             {"role": "user", "content": (
                                 f"The following code raised an error:\n\n{pptx_code}\n\n"
                                 f"Error: {last_error}\n\n"
-                                "Fix the code and return only the corrected function."
+                                "Fix the code and return only the corrected function.\n"
+                                "REMINDER: All modules are already injected as global variables — "
+                                "remove any import statements and use the pre-injected names directly."
                             )},
                         ],
                         max_tokens=5000,
