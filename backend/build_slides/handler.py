@@ -104,14 +104,14 @@ def _build_code(structure: dict, settings: dict, client: OpenAI, job_id: str, ha
         f"Presentation structure:\n{json.dumps(structure, indent=2)}"
     )
     prompt_len = len(_BUILD_SYSTEM) + len(user_msg)
-    print(f"[{job_id}] API call starting (prompt ~{prompt_len} chars, max_tokens=5000)...")
+    print(f"[{job_id}] API call starting (prompt ~{prompt_len} chars, max_tokens=10000)...")
     response = client.chat.completions.create(
         model=QWEN_MODEL,
         messages=[
             {"role": "system", "content": _BUILD_SYSTEM},
             {"role": "user", "content": user_msg},
         ],
-        max_tokens=5000,
+        max_tokens=10000,
     )
     code = response.choices[0].message.content or ""
     print(f"[{job_id}] API call complete, received {len(code)} chars of code")
@@ -246,7 +246,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                                 "remove any import statements and use the pre-injected names directly."
                             )},
                         ],
-                        max_tokens=5000,
+                        max_tokens=10000,
                     )
                     pptx_code = fix_response.choices[0].message.content or pptx_code
                     _update_job(job_id, pptx_code=pptx_code)
