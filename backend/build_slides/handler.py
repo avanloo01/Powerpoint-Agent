@@ -92,19 +92,37 @@ STYLE GUIDE (concise):
 """)
 
 
-def _build_code(structure: dict, settings: dict, client: OpenAI, job_id: str, has_logo: bool = False) -> str:
-    """Generate python-pptx code from the structure blueprint."""
+BATCH_SIZE = 4
+
+
+def _build_batch_code(
+    batch_slides: list,
+    batch_num: int,
+    total_batches: int,
+    settings: dict,
+    client: OpenAI,
+    job_id: str,
+    has_logo: bool = False,
+) -> str:
+    """Generate python-pptx code for a single batch of slides."""
     primary = settings.get("primary_color", "#C00000")
     accent = settings.get("accent_color", "#A6CAEC")
-    logo_note = "A logo_bytes parameter WILL be provided, place the logo on every slide." if has_logo else "No logo will be provided."
+    logo_note = (
+        "A logo_bytes parameter WILL be provided, place the logo on every slide."
+        if has_logo else "No logo will be provided."
+    )
+    fn_name = f"build_batch_{batch_num}"
+    batch_structure: dict = {"slides": batch_slides}
+    structure_json = json.dumps(batch_structure, indent=2)
     user_msg = (
         f"Primary color: {primary}\n"
         f"Accent color: {accent}\n"
-        f"Logo: {logo_note}\n\n"
-        f"Presentation structure:\n{json.dumps(structure, indent=2)}"
+        f"Logo: {logo_note}\n"
+        f"IMPORTANT: Name your function `{fn_name}` (NOT `build_presentation`).\n\n"
+        f"Presentation structure:\n{structure_json}"
     )
     prompt_len = len(_BUILD_SYSTEM) + len(user_msg)
-    print(f"[{job_id}] API call starting (prompt ~{prompt_len} chars, max_tokens=16000)...")
+    print(f"[{job_id}] Batch {batch_num}/{total_batches}: API call ({prompt_len} chars, timeout=300s)...")
     response = client.chat.completions.create(
         model=QWEN_MODEL,
         messages=[
@@ -112,16 +130,17 @@ def _build_code(structure: dict, settings: dict, client: OpenAI, job_id: str, ha
             {"role": "user", "content": user_msg},
         ],
         max_tokens=16000,
+        timeout=300.0,
     )
     code = response.choices[0].message.content or ""
-    print(f"[{job_id}] API call complete, received {len(code)} chars of code")
+    print(f"[{job_id}] Batch {batch_num}/{total_batches}: received {len(code)} chars")
     return code
 
 
 # ─── EXECUTE GENERATED CODE ───────────────────────────────────────────────────
 
-def _execute(code: str, logo_bytes: bytes | None = None) -> bytes:
-    """Execute AI-generated build_presentation() in a restricted namespace, return PPTX bytes."""
+def _make_namespace() -> dict:
+    """Create the restricted execution namespace with pre-injected globals."""
     import pptx
     import pptx.chart.data
     import pptx.dml.color
@@ -130,9 +149,6 @@ def _execute(code: str, logo_bytes: bytes | None = None) -> bytes:
     import pptx.util
     from io import BytesIO
     from PIL import Image, ImageEnhance
-    from pptx import Presentation as _Prs
-
-    code = re.sub(r"```(?:python)?\s*", "", code).strip().rstrip("`").strip()
 
     _SAFE_NAMES = (
         "abs", "bool", "dict", "enumerate", "float", "hasattr", "int",
@@ -145,7 +161,7 @@ def _execute(code: str, logo_bytes: bytes | None = None) -> bytes:
         if hasattr(_builtins, name)
     }
 
-    namespace: dict = {
+    return {
         "__builtins__": safe_builtins,
         "Inches": pptx.util.Inches,
         "Pt": pptx.util.Pt,
@@ -164,25 +180,23 @@ def _execute(code: str, logo_bytes: bytes | None = None) -> bytes:
         "BytesIO": BytesIO,
     }
 
+
+def _execute_batch(
+    code: str, prs: object, namespace: dict, logo_bytes: bytes | None, fn_name: str,
+) -> None:
+    """Execute AI-generated batch code, adding slides to the existing prs."""
+    code = re.sub(r"```(?:python)?\s*", "", code).strip().rstrip("`").strip()
     exec(code, namespace)  # noqa: S102
-    print("[_execute] exec() completed, looking for build_presentation...")
 
-    build_fn = namespace.get("build_presentation")
+    build_fn = namespace.get(fn_name)
     if not callable(build_fn):
-        raise ValueError("Generated code does not define a callable 'build_presentation'")
+        available = [k for k, v in namespace.items() if callable(v) and not k.startswith("_")]
+        raise ValueError(
+            f"Generated code does not define '{fn_name}'. "
+            f"Available callables: {available}"
+        )
 
-    print("[_execute] Creating Presentation and running build_presentation...")
-    prs = _Prs()
-    prs.slide_width = pptx.util.Inches(13.33)
-    prs.slide_height = pptx.util.Inches(7.5)
     build_fn(prs, logo_bytes=logo_bytes)
-    print("[_execute] build_presentation() completed, saving PPTX...")
-
-    buf = io.BytesIO()
-    prs.save(buf)
-    buf.seek(0)
-    print(f"[_execute] PPTX saved ({buf.getbuffer().nbytes} bytes)")
-    return buf.read()
 
 
 # ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
@@ -213,46 +227,86 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             except Exception:  # noqa: BLE001
                 logo_bytes = None
 
-        # ── Stage 1: Generate code ─────────────────────────────────────────
-        print(f"[{job_id}] Stage 1: Generating PPTX code...")
-        _update_job(job_id, status="building", stage_message="Building your presentation\u2026")
-        pptx_code = _build_code(structure, settings, client, job_id, has_logo=logo_bytes is not None)
-        _update_job(job_id, pptx_code=pptx_code)
+        # ── Stage 1: Build slides in batches ──────────────────────────────
+        slides: list = structure.get("slides", [])
+        total_slides = len(slides)
+        has_logo = logo_bytes is not None
 
-        # ── Stage 2: Execute with up to 3 self-correction attempts ─────────
-        print(f"[{job_id}] Stage 2: Executing generated code...")
-        pptx_bytes: bytes | None = None
+        # Split slides into batches
+        batches = [slides[i:i + BATCH_SIZE] for i in range(0, total_slides, BATCH_SIZE)]
+        total_batches = len(batches)
+        print(f"[{job_id}] Stage 1: Building {total_slides} slides in {total_batches} batches (batch size={BATCH_SIZE})...")
+        _update_job(job_id, status="building", stage_message=f"Building slides 1-{min(BATCH_SIZE, total_slides)} of {total_slides}\u2026")
+
+        # Create presentation once, all batches add to it
+        from pptx import Presentation as _Prs
+        import pptx.util
+        prs = _Prs()
+        prs.slide_width = pptx.util.Inches(13.33)
+        prs.slide_height = pptx.util.Inches(7.5)
+        namespace = _make_namespace()
+        all_code: list[str] = []
+
         last_error = ""
+        for batch_num, batch_slides in enumerate(batches, 1):
+            start_slide = (batch_num - 1) * BATCH_SIZE + 1
+            end_slide = min(batch_num * BATCH_SIZE, total_slides)
+            fn_name = f"build_batch_{batch_num}"
+            print(f"[{job_id}] Batch {batch_num}/{total_batches}: slides {start_slide}-{end_slide}")
+            _update_job(job_id, stage_message=f"Building slides {start_slide}-{end_slide} of {total_slides}\u2026")
 
-        for attempt in range(3):
-            try:
-                pptx_bytes = _execute(pptx_code, logo_bytes=logo_bytes)
-                print(f"[{job_id}] Stage 2: Execution succeeded on attempt {attempt + 1}")
-                break
-            except Exception as exc:  # noqa: BLE001
-                print(f"[{job_id}] Stage 2: Attempt {attempt + 1} failed: {exc}")
-                last_error = str(exc)
-                if attempt < 2:
-                    _update_job(job_id, stage_message=f"Fixing code error (attempt {attempt + 2}/3)\u2026")
-                    fix_response = client.chat.completions.create(
-                        model=QWEN_MODEL,
-                        messages=[
-                            {"role": "system", "content": _BUILD_SYSTEM},
-                            {"role": "user", "content": (
-                                f"The following code raised an error:\n\n{pptx_code}\n\n"
-                                f"Error: {last_error}\n\n"
-                                "Fix the code and return only the corrected function.\n"
-                                "REMINDER: All modules are already injected as global variables — "
-                                "remove any import statements and use the pre-injected names directly."
-                            )},
-                        ],
-                        max_tokens=16000,
-                    )
-                    pptx_code = fix_response.choices[0].message.content or pptx_code
-                    _update_job(job_id, pptx_code=pptx_code)
+            # Generate code for this batch
+            batch_code = _build_batch_code(
+                batch_slides, batch_num, total_batches, settings, client, job_id, has_logo,
+            )
+            all_code.append(batch_code)
 
-        if pptx_bytes is None:
-            raise RuntimeError(f"Code execution failed after 3 attempts. Last error: {last_error}")
+            # Execute with up to 3 self-correction attempts
+            batch_ok = False
+            for attempt in range(3):
+                try:
+                    _execute_batch(batch_code, prs, namespace, logo_bytes, fn_name)
+                    print(f"[{job_id}] Batch {batch_num}/{total_batches}: executed on attempt {attempt + 1}")
+                    batch_ok = True
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[{job_id}] Batch {batch_num}/{total_batches}: attempt {attempt + 1} failed: {exc}")
+                    last_error = str(exc)
+                    if attempt < 2:
+                        _update_job(job_id, stage_message=f"Fixing batch {batch_num} (attempt {attempt + 2}/3)\u2026")
+                        fix_response = client.chat.completions.create(
+                            model=QWEN_MODEL,
+                            messages=[
+                                {"role": "system", "content": _BUILD_SYSTEM},
+                                {"role": "user", "content": (
+                                    f"The following code raised an error:\n\n{batch_code}\n\n"
+                                    f"Error: {last_error}\n\n"
+                                    f"Fix the code and return only the corrected function named `{fn_name}`.\n"
+                                    "REMINDER: All modules are already injected as global variables — "
+                                    "remove any import statements and use the pre-injected names directly."
+                                )},
+                            ],
+                            max_tokens=16000,
+                            timeout=120.0,
+                        )
+                        batch_code = fix_response.choices[0].message.content or batch_code
+                        all_code[-1] = batch_code
+
+            if not batch_ok:
+                raise RuntimeError(
+                    f"Batch {batch_num}/{total_batches} failed after 3 attempts. Last error: {last_error}"
+                )
+
+        # Save the full code for debugging
+        _update_job(job_id, pptx_code="\n\n# --- BATCH ---\n\n".join(all_code))
+
+        # ── Stage 2: Save PPTX to bytes ───────────────────────────────────
+        print(f"[{job_id}] Stage 2: Saving PPTX...")
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        pptx_bytes = buf.read()
+        print(f"[{job_id}] PPTX saved ({len(pptx_bytes)} bytes)")
 
         # ── Stage 3: Upload to S3 ──────────────────────────────────────────
         print(f"[{job_id}] Stage 3: Uploading to S3...")
