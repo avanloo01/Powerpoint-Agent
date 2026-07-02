@@ -117,7 +117,10 @@ resource "aws_s3_bucket_policy" "storage_public_read_logos" {
         Effect    = "Allow"
         Principal = "*"
         Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.storage.arn}/logo/*"
+        Resource = [
+          "${aws_s3_bucket.storage.arn}/logo/*",
+          "${aws_s3_bucket.storage.arn}/icons/*"
+        ]
       }
     ]
   })

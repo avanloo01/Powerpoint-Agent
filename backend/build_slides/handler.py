@@ -95,7 +95,7 @@ STYLE GUIDE (concise):
 - Slide bg: white. Section label: top-left 9pt RGB(128,128,128). Slide title: bold 22pt black below label.
 - Box headers: primary-fill rects, white bold 12pt text, with padding (don't span full column width).
 - Column separators: 0.5pt light-gray line centered between columns, height matching the column content height only (from top of the first element in the columns to bottom of the last element, not extending into section label/title or conclusion/sources). Causal: use add_shape with MSO_SHAPE.DIAMOND (filled, accent color, ~10pt × ~6pt, centered on the line midpoint).
-- Bullets: filled circle + bold title + description text.
+- Bullets: Icons are PRE-DOWNLOADED and passed as a dict `icons` (key=filename like "acorn.svg", value=raw SVG bytes). For each bullet, get the icon bytes via `icons[bullet["icon"]]`, wrap in BytesIO, and pass directly to add_picture() at ~14pt × 14pt at the bullet's y-position. Then place bold title text to the right and description below. If a bullet has no icon field or the icon isn't in the dict, fall back to a small filled circle (add_shape with MSO_SHAPE.OVAL, ~8pt × 8pt).
 - Charts: ChartData + slide.shapes.add_chart().
 - Conclusion: 1pt primary border, centered italic 11pt, width = FULL content width (spanning all columns, matching the combined column area).
 - Sources: bottom-left 8pt RGB(128,128,128).
@@ -115,6 +115,7 @@ def _build_batch_code(
     client: OpenAI,
     job_id: str,
     has_logo: bool = False,
+    has_icons: bool = False,
 ) -> str:
     """Generate python-pptx code for a single batch of slides."""
     primary = settings.get("primary_color", "#C00000")
@@ -123,6 +124,10 @@ def _build_batch_code(
         "A logo_bytes parameter WILL be provided, place the logo on every slide."
         if has_logo else "No logo will be provided."
     )
+    icon_note = (
+        "An `icons` dict (filename → SVG bytes) IS provided — use icons[bullet['icon']] to get each icon."
+        if has_icons else "No icons are provided — use UNICODE bullets if really necessary."
+    )
     fn_name = f"build_batch_{batch_num}"
     batch_structure: dict = {"slides": batch_slides}
     structure_json = json.dumps(batch_structure, indent=2)
@@ -130,6 +135,7 @@ def _build_batch_code(
         f"Primary color: {primary}\n"
         f"Accent color: {accent}\n"
         f"Logo: {logo_note}\n"
+        f"Icons: {icon_note}\n"
         f"IMPORTANT: Name your function `{fn_name}` (NOT `build_presentation`).\n\n"
         f"Presentation structure:\n{structure_json}"
     )
@@ -199,6 +205,7 @@ def _make_namespace() -> dict:
 
 def _execute_batch(
     code: str, prs: object, namespace: dict, logo_bytes: bytes | None, fn_name: str,
+    icons: dict[str, bytes] | None = None,
 ) -> None:
     """Execute AI-generated batch code, adding slides to the existing prs."""
     code = re.sub(r"```(?:python)?\s*", "", code).strip().rstrip("`").strip()
@@ -212,7 +219,7 @@ def _execute_batch(
             f"Available callables: {available}"
         )
 
-    build_fn(prs, logo_bytes=logo_bytes)
+    build_fn(prs, logo_bytes=logo_bytes, icons=icons or {})
 
 
 # ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
@@ -242,6 +249,30 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                 print(f"[{job_id}] Stage 0: Logo downloaded ({len(logo_bytes)} bytes)")
             except Exception:  # noqa: BLE001
                 logo_bytes = None
+
+        # ── Stage 0.5: Collect & download icons ────────────────────────────
+        print(f"[{job_id}] Stage 0.5: Collecting icons from structure...")
+        icons: dict[str, bytes] = {}
+        icon_names: set[str] = set()
+        for slide in structure.get("slides", []):
+            for col in slide.get("columns", []):
+                for bullet in col.get("bullets", []):
+                    icon_name = bullet.get("icon", "")
+                    if icon_name:
+                        icon_names.add(icon_name)
+        if icon_names:
+            print(f"[{job_id}] Stage 0.5: Downloading {len(icon_names)} unique icons...")
+            for name in sorted(icon_names):
+                try:
+                    buf = io.BytesIO()
+                    s3.download_fileobj(S3_OUTPUT_BUCKET, f"icons/{name}", buf)
+                    icons[name] = buf.getvalue()
+                except Exception:  # noqa: BLE001
+                    print(f"[{job_id}] Stage 0.5: Failed to download icon {name}, skipping")
+            print(f"[{job_id}] Stage 0.5: Downloaded {len(icons)}/{len(icon_names)} icons")
+        else:
+            print(f"[{job_id}] Stage 0.5: No icons referenced in structure")
+        has_icons = len(icons) > 0
 
         # ── Stage 1: Build slides in batches ──────────────────────────────
         slides: list = structure.get("slides", [])
@@ -273,7 +304,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
 
             # Generate code for this batch
             batch_code = _build_batch_code(
-                batch_slides, batch_num, total_batches, settings, client, job_id, has_logo,
+                batch_slides, batch_num, total_batches, settings, client, job_id, has_logo, has_icons,
             )
             all_code.append(batch_code)
 
@@ -281,7 +312,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             batch_ok = False
             for attempt in range(3):
                 try:
-                    _execute_batch(batch_code, prs, namespace, logo_bytes, fn_name)
+                    _execute_batch(batch_code, prs, namespace, logo_bytes, fn_name, icons)
                     print(f"[{job_id}] Batch {batch_num}/{total_batches}: executed on attempt {attempt + 1}")
                     batch_ok = True
                     break
