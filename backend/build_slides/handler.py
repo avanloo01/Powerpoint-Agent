@@ -12,6 +12,7 @@ import math
 import os
 import re
 import textwrap
+import traceback
 from urllib import request as urlrequest
 
 import boto3
@@ -154,6 +155,8 @@ def _make_namespace() -> dict:
         "abs", "bool", "dict", "enumerate", "float", "hasattr", "int",
         "isinstance", "len", "list", "max", "min", "print", "range",
         "round", "set", "str", "sum", "tuple", "zip",
+        "Exception", "ValueError", "TypeError", "KeyError",
+        "IndexError", "AttributeError", "RuntimeError", "StopIteration",
     )
     safe_builtins = {
         name: getattr(_builtins, name)
@@ -270,10 +273,17 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                     batch_ok = True
                     break
                 except Exception as exc:  # noqa: BLE001
-                    print(f"[{job_id}] Batch {batch_num}/{total_batches}: attempt {attempt + 1} failed: {exc}")
+                    tb = traceback.format_exc()
+                    print(f"[{job_id}] Batch {batch_num}/{total_batches}: attempt {attempt + 1} FAILED")
+                    print(f"[{job_id}] Error: {exc}")
+                    print(f"[{job_id}] Traceback:\n{tb}")
+                    # Log first 500 chars of failing code for pattern analysis
+                    code_preview = batch_code[:500].replace("\n", "\\n")
+                    print(f"[{job_id}] Failing code preview: {code_preview}...")
                     last_error = str(exc)
                     if attempt < 2:
                         _update_job(job_id, stage_message=f"Fixing batch {batch_num} (attempt {attempt + 2}/3)\u2026")
+                        print(f"[{job_id}] Batch {batch_num}/{total_batches}: requesting fix from API...")
                         fix_response = client.chat.completions.create(
                             model=QWEN_MODEL,
                             messages=[
@@ -290,6 +300,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                             timeout=120.0,
                         )
                         batch_code = fix_response.choices[0].message.content or batch_code
+                        print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix received ({len(batch_code)} chars)")
                         all_code[-1] = batch_code
 
             if not batch_ok:
