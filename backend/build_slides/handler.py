@@ -75,6 +75,16 @@ CONSTRAINTS:
   io, math, json, urlrequest (urllib.request), Image, ImageEnhance (PIL), BytesIO
 - Return ONLY valid Python 3.12 function code (no fences, no extra text).
 
+CRITICAL RULES (violating these WILL crash):
+- add_picture() expects a FILE-LIKE object (BytesIO or file path). NEVER pass raw bytes.
+  WRONG: img_bytes = buf.getvalue(); slide.shapes.add_picture(img_bytes, ...)
+  RIGHT: buf.seek(0); slide.shapes.add_picture(buf, ...)
+- After writing to a BytesIO, ALWAYS call buf.seek(0) before using it.
+- NEVER write import statements. All names (Inches, Pt, BytesIO, Image, etc.) are pre-injected.
+- NEVER call Presentation() — use the `prs` argument.
+- When downloading images: use urlrequest, wrap in BytesIO, process with PIL, save back to
+  BytesIO, seek(0), then pass the BytesIO directly to add_picture().
+
 STYLE GUIDE (concise):
 - title_slide: download image, darken (ImageEnhance.Brightness, factor 0.6), insert as full-slide bg. Title bold 54pt white, centered.
 - section_divider: download & darken image as full-slide bg, then in order:
