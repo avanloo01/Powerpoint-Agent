@@ -296,7 +296,12 @@ def _get_image_buf_factory(image_buffers: dict[str, bytes]):
     def _get_image_buf(url: str, darken: bool = False):
         data = image_buffers.get(url)
         if data is None:
-            raise ValueError(f"Image URL not pre-downloaded: {url}")
+            # Image failed to download — return a dark placeholder so the slide renders
+            placeholder = Image.new("RGB", (1920, 1080), (50, 50, 50))
+            buf = BytesIO()
+            placeholder.save(buf, format="PNG")
+            buf.seek(0)
+            return buf
         img = Image.open(BytesIO(data))
         if darken:
             enhancer = ImageEnhance.Brightness(img)
@@ -337,20 +342,34 @@ def _execute_batch(
 # ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 
 def handler(event: dict, context) -> None:  # noqa: ANN001
-    """Entry point – invoked asynchronously by agent_loop."""
+    """Entry point – invoked asynchronously. Each invocation processes one batch
+    of slides, then chains to itself for the next batch via async Lambda invoke."""
     job_id: str = event["job_id"]
     structure: dict = event["structure"]
     settings: dict = event.get("settings", {})
     api_key: str = settings.get("api_key", "")
     logo_url: str = settings.get("logo_url", "")
 
-    print(f"[{job_id}] Build-slides started. {len(structure.get('slides', []))} slides to build.")
+    # Lambda-chaining state — absent on the first invocation
+    batch_num: int = event.get("batch_num", 1)
+    total_batches: int = event.get("total_batches", 0)   # computed on first call
+    wip_s3_key: str | None = event.get("wip_s3_key")
+
+    is_first = batch_num == 1
+    if is_first:
+        print(f"[{job_id}] Build-slides started. {len(structure.get('slides', []))} slides.")
+    else:
+        print(f"[{job_id}] Batch {batch_num}/{total_batches} invocation started.")
 
     client = OpenAI(api_key=api_key, base_url=QWEN_BASE_URL, timeout=600.0)
     s3 = boto3.client("s3")
 
     try:
-        # ── Stage 0: Download logo ─────────────────────────────────────────
+        # Pre-compute which slides belong to this batch so downloads are scoped
+        slides: list = structure.get("slides", [])
+        batch_slides = slides[(batch_num - 1) * BATCH_SIZE : batch_num * BATCH_SIZE]
+
+        # ── Always: download logo ──────────────────────────────────────────
         print(f"[{job_id}] Stage 0: Checking for logo...")
         logo_bytes: bytes | None = None
         if logo_url:
@@ -362,10 +381,10 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             except Exception:  # noqa: BLE001
                 logo_bytes = None
 
-        # ── Stage 0.2: Pre-download background images ────────────────────
+        # ── Always: pre-download background images ─────────────────────────
         print(f"[{job_id}] Stage 0.2: Pre-downloading background images...")
         image_urls: set[str] = set()
-        for slide in structure.get("slides", []):
+        for slide in batch_slides:
             url = slide.get("image_url")
             if url:
                 image_urls.add(url)
@@ -383,11 +402,11 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         else:
             print(f"[{job_id}] Stage 0.2: No background images in structure")
 
-        # ── Stage 0.5: Collect & download icons ────────────────────────────
+        # ── Always: download icons ─────────────────────────────────────────
         print(f"[{job_id}] Stage 0.5: Collecting icons from structure...")
         icons: dict[str, bytes] = {}
         icon_names: set[str] = set()
-        for slide in structure.get("slides", []):
+        for slide in batch_slides:
             for col in slide.get("columns", []):
                 for bullet in col.get("bullets", []):
                     icon_name = bullet.get("icon", "")
@@ -411,146 +430,193 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             print(f"[{job_id}] Stage 0.5: No icons referenced in structure")
         has_icons = len(icons) > 0
 
-        # ── Pre-compute section numbers for divider slides ─────────────────
-        slides: list = structure.get("slides", [])
-        section_num = 0
-        for slide in slides:
-            if slide.get("layout") == "section_divider":
-                section_num += 1
-                slide["section_number"] = section_num
+        # ── First invocation only: one-time setup ─────────────────────────
+        if is_first:
+            # Null out any image URLs that failed so the AI won't reference them
+            for slide in slides:
+                url = slide.get("image_url")
+                if url and url not in image_buffers:
+                    slide["image_url"] = None
 
-        # ── Stage 1: Build slides in batches ──────────────────────────────
-        total_slides = len(slides)
-        has_logo = logo_bytes is not None
+            # Assign section numbers to divider slides
+            section_num = 0
+            for slide in slides:
+                if slide.get("layout") == "section_divider":
+                    section_num += 1
+                    slide["section_number"] = section_num
 
-        # Split slides into batches
-        batches = [slides[i:i + BATCH_SIZE] for i in range(0, total_slides, BATCH_SIZE)]
-        total_batches = len(batches)
-        print(f"[{job_id}] Stage 1: Building {total_slides} slides in {total_batches} batches (batch size={BATCH_SIZE})...")
-        _update_job(job_id, status="building", stage_message=f"Building slides 1-{min(BATCH_SIZE, total_slides)} of {total_slides}\u2026")
+            total_slides = len(slides)
+            total_batches = math.ceil(total_slides / BATCH_SIZE)
+            print(f"[{job_id}] {total_slides} slides → {total_batches} batches of {BATCH_SIZE}")
+            _update_job(job_id, status="building", stage_message=f"Building slides 1-{min(BATCH_SIZE, total_slides)} of {total_slides}…")
 
-        # Create presentation once, all batches add to it
+        # ── Load or create prs ─────────────────────────────────────────────
         from pptx import Presentation as _Prs
         import pptx.util
-        prs = _Prs()
-        prs.slide_width = pptx.util.Inches(13.33)
-        prs.slide_height = pptx.util.Inches(7.5)
+        if wip_s3_key:
+            print(f"[{job_id}] Loading WIP pptx from {wip_s3_key}...")
+            wip_buf = io.BytesIO()
+            s3.download_fileobj(S3_OUTPUT_BUCKET, wip_s3_key, wip_buf)
+            wip_buf.seek(0)
+            prs = _Prs(wip_buf)
+        else:
+            prs = _Prs()
+            prs.slide_width = pptx.util.Inches(13.33)
+            prs.slide_height = pptx.util.Inches(7.5)
+
+        # ── Process this batch ─────────────────────────────────────────────
+        total_slides = len(slides)
+        fn_name = f"build_batch_{batch_num}"
+        start_slide = (batch_num - 1) * BATCH_SIZE + 1
+        end_slide = min(batch_num * BATCH_SIZE, total_slides)
+        has_logo = logo_bytes is not None
         namespace = _make_namespace(image_buffers)
-        all_code: list[str] = []
 
+        print(f"[{job_id}] Batch {batch_num}/{total_batches}: slides {start_slide}-{end_slide}")
+        _update_job(job_id, stage_message=f"Building slides {start_slide}-{end_slide} of {total_slides}…")
+
+        batch_code = _build_batch_code(
+            batch_slides, batch_num, total_batches, settings, client, job_id, has_logo, has_icons,
+        )
+
+        # Execute with up to 3 self-correction attempts
+        batch_ok = False
         last_error = ""
-        for batch_num, batch_slides in enumerate(batches, 1):
-            start_slide = (batch_num - 1) * BATCH_SIZE + 1
-            end_slide = min(batch_num * BATCH_SIZE, total_slides)
-            fn_name = f"build_batch_{batch_num}"
-            print(f"[{job_id}] Batch {batch_num}/{total_batches}: slides {start_slide}-{end_slide}")
-            _update_job(job_id, stage_message=f"Building slides {start_slide}-{end_slide} of {total_slides}\u2026")
+        for attempt in range(3):
+            try:
+                _execute_batch(batch_code, prs, namespace, logo_bytes, fn_name, icons)
+                print(f"[{job_id}] Batch {batch_num}/{total_batches}: executed on attempt {attempt + 1}")
+                batch_ok = True
+                break
+            except Exception as exc:  # noqa: BLE001
+                tb = traceback.format_exc()
+                print(f"[{job_id}] Batch {batch_num}/{total_batches}: attempt {attempt + 1} FAILED")
+                print(f"[{job_id}] Error: {exc}")
+                print(f"[{job_id}] Traceback:\n{tb}")
+                # Log first 500 chars of failing code for pattern analysis
+                code_preview = batch_code[:500].replace("\n", "\\n")
+                print(f"[{job_id}] Failing code preview: {code_preview}...")
+                last_error = str(exc)
+                if attempt < 2:
+                    _update_job(job_id, stage_message=f"Fixing batch {batch_num} (attempt {attempt + 2}/3)…")
+                    print(f"[{job_id}] Batch {batch_num}/{total_batches}: requesting fix from API...")
+                    fix_code = batch_code
+                    fix_exc = None
+                    for fix_retry in range(3):
+                        try:
+                            print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix API call (attempt {fix_retry+1}/3)...")
+                            fix_response = client.chat.completions.create(
+                                model=QWEN_MODEL,
+                                messages=[
+                                    {"role": "system", "content": _BUILD_SYSTEM},
+                                    {"role": "user", "content": (
+                                        f"The following code raised an error:\n\n{batch_code}\n\n"
+                                        f"Error: {last_error}\n\n"
+                                        f"Fix the code and return only the corrected function named `{fn_name}`.\n"
+                                        "REMINDER: All modules are already injected as global variables \u2014 "
+                                        "remove any import statements and use the pre-injected names directly."
+                                    )},
+                                ],
+                                max_tokens=16000,
+                                timeout=600.0,
+                            )
+                            fix_code = fix_response.choices[0].message.content or batch_code
+                            print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix received ({len(fix_code)} chars)")
+                            fix_exc = None
+                            break
+                        except Exception as fix_err:  # noqa: BLE001
+                            fix_exc = fix_err
+                            print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix API attempt {fix_retry+1} failed: {fix_err}")
+                            if fix_retry < 2:
+                                wait = (fix_retry + 1) * 10
+                                print(f"[{job_id}] Waiting {wait}s before fix retry...")
+                                time.sleep(wait)
+                    if fix_exc is not None:
+                        raise RuntimeError(
+                            f"Fix API call failed after 3 attempts: {fix_exc}"
+                        ) from fix_exc
+                    batch_code = fix_code
 
-            # Generate code for this batch
-            batch_code = _build_batch_code(
-                batch_slides, batch_num, total_batches, settings, client, job_id, has_logo, has_icons,
+        if not batch_ok:
+            raise RuntimeError(
+                f"Batch {batch_num}/{total_batches} failed after 3 attempts. Last error: {last_error}"
             )
-            all_code.append(batch_code)
 
-            # Execute with up to 3 self-correction attempts
-            batch_ok = False
-            for attempt in range(3):
-                try:
-                    _execute_batch(batch_code, prs, namespace, logo_bytes, fn_name, icons)
-                    print(f"[{job_id}] Batch {batch_num}/{total_batches}: executed on attempt {attempt + 1}")
-                    batch_ok = True
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    tb = traceback.format_exc()
-                    print(f"[{job_id}] Batch {batch_num}/{total_batches}: attempt {attempt + 1} FAILED")
-                    print(f"[{job_id}] Error: {exc}")
-                    print(f"[{job_id}] Traceback:\n{tb}")
-                    # Log first 500 chars of failing code for pattern analysis
-                    code_preview = batch_code[:500].replace("\n", "\\n")
-                    print(f"[{job_id}] Failing code preview: {code_preview}...")
-                    last_error = str(exc)
-                    if attempt < 2:
-                        _update_job(job_id, stage_message=f"Fixing batch {batch_num} (attempt {attempt + 2}/3)\u2026")
-                        print(f"[{job_id}] Batch {batch_num}/{total_batches}: requesting fix from API...")
-                        fix_code = batch_code
-                        fix_exc = None
-                        for fix_retry in range(3):
-                            try:
-                                print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix API call (attempt {fix_retry+1}/3)...")
-                                fix_response = client.chat.completions.create(
-                                    model=QWEN_MODEL,
-                                    messages=[
-                                        {"role": "system", "content": _BUILD_SYSTEM},
-                                        {"role": "user", "content": (
-                                            f"The following code raised an error:\n\n{batch_code}\n\n"
-                                            f"Error: {last_error}\n\n"
-                                            f"Fix the code and return only the corrected function named `{fn_name}`.\n"
-                                            "REMINDER: All modules are already injected as global variables — "
-                                            "remove any import statements and use the pre-injected names directly."
-                                        )},
-                                    ],
-                                    max_tokens=16000,
-                                    timeout=600.0,
-                                )
-                                fix_code = fix_response.choices[0].message.content or batch_code
-                                print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix received ({len(fix_code)} chars)")
-                                fix_exc = None
-                                break
-                            except Exception as fix_err:  # noqa: BLE001
-                                fix_exc = fix_err
-                                print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix API attempt {fix_retry+1} failed: {fix_err}")
-                                if fix_retry < 2:
-                                    wait = (fix_retry + 1) * 10
-                                    print(f"[{job_id}] Waiting {wait}s before fix retry...")
-                                    time.sleep(wait)
-                        if fix_exc is not None:
-                            raise RuntimeError(
-                                f"Fix API call failed after 3 attempts: {fix_exc}"
-                            ) from fix_exc
-                        batch_code = fix_code
-                        all_code[-1] = batch_code
-
-            if not batch_ok:
-                raise RuntimeError(
-                    f"Batch {batch_num}/{total_batches} failed after 3 attempts. Last error: {last_error}"
-                )
-
-        # Save the full code for debugging
-        _update_job(job_id, pptx_code="\n\n# --- BATCH ---\n\n".join(all_code))
-
-        # ── Stage 2: Save PPTX to bytes ───────────────────────────────────
-        print(f"[{job_id}] Stage 2: Saving PPTX...")
-        buf = io.BytesIO()
-        prs.save(buf)
-        buf.seek(0)
-        pptx_bytes = buf.read()
-        print(f"[{job_id}] PPTX saved ({len(pptx_bytes)} bytes)")
-
-        # ── Stage 3: Upload to S3 ──────────────────────────────────────────
-        print(f"[{job_id}] Stage 3: Uploading to S3...")
-        key = f"presentations/{job_id}.pptx"
+        # ── Save batch code to S3 ──────────────────────────────────────────
         s3.put_object(
             Bucket=S3_OUTPUT_BUCKET,
-            Key=key,
-            Body=pptx_bytes,
-            ContentType=(
-                "application/vnd.openxmlformats-officedocument"
-                ".presentationml.presentation"
-            ),
-        )
-        download_url = s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": S3_OUTPUT_BUCKET, "Key": key},
-            ExpiresIn=3600,
+            Key=f"wip/{job_id}/code_{batch_num}.txt",
+            Body=batch_code.encode(),
         )
 
-        _update_job(
-            job_id,
-            status="done",
-            stage_message="Your presentation is ready!",
-            download_url=download_url,
-        )
-        print(f"[{job_id}] DONE. Download: {download_url}")
+        # ── Serialize current prs to bytes ─────────────────────────────────
+        prs_buf = io.BytesIO()
+        prs.save(prs_buf)
+        prs_bytes = prs_buf.getvalue()
+
+        if batch_num < total_batches:
+            # ── More batches: save WIP and chain to next invocation ────────
+            new_wip_key = f"wip/{job_id}/pptx.pptx"
+            s3.put_object(Bucket=S3_OUTPUT_BUCKET, Key=new_wip_key, Body=prs_bytes)
+            print(f"[{job_id}] WIP saved ({len(prs_bytes)} bytes). Invoking batch {batch_num + 1}/{total_batches}...")
+            boto3.client("lambda").invoke(
+                FunctionName=context.function_name,
+                InvocationType="Event",
+                Payload=json.dumps({
+                    "job_id": job_id,
+                    "structure": structure,
+                    "settings": settings,
+                    "batch_num": batch_num + 1,
+                    "total_batches": total_batches,
+                    "wip_s3_key": new_wip_key,
+                }).encode(),
+            )
+            print(f"[{job_id}] Invoked self for batch {batch_num + 1}/{total_batches}")
+
+        else:
+            # ── Last batch: collect code, upload final PPTX, mark done ────
+            all_code: list[str] = []
+            for i in range(1, total_batches + 1):
+                try:
+                    resp = s3.get_object(Bucket=S3_OUTPUT_BUCKET, Key=f"wip/{job_id}/code_{i}.txt")
+                    all_code.append(resp["Body"].read().decode())
+                except Exception:  # noqa: BLE001
+                    pass
+            _update_job(job_id, pptx_code="\n\n# --- BATCH ---\n\n".join(all_code))
+            print(f"[{job_id}] Final batch done. Uploading PPTX ({len(prs_bytes)} bytes)...")
+            key = f"presentations/{job_id}.pptx"
+            s3.put_object(
+                Bucket=S3_OUTPUT_BUCKET,
+                Key=key,
+                Body=prs_bytes,
+                ContentType=(
+                    "application/vnd.openxmlformats-officedocument"
+                    ".presentationml.presentation"
+                ),
+            )
+            download_url = s3.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": S3_OUTPUT_BUCKET, "Key": key},
+                ExpiresIn=3600,
+            )
+            _update_job(
+                job_id,
+                status="done",
+                stage_message="Your presentation is ready!",
+                download_url=download_url,
+            )
+            print(f"[{job_id}] DONE. Download: {download_url}")
+
+            # Clean up WIP files
+            for i in range(1, total_batches + 1):
+                try:
+                    s3.delete_object(Bucket=S3_OUTPUT_BUCKET, Key=f"wip/{job_id}/code_{i}.txt")
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                s3.delete_object(Bucket=S3_OUTPUT_BUCKET, Key=f"wip/{job_id}/pptx.pptx")
+            except Exception:  # noqa: BLE001
+                pass
 
     except Exception as exc:  # noqa: BLE001
         print(f"[{job_id}] ERROR: {exc}")
