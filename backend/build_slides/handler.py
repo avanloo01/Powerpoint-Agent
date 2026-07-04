@@ -106,7 +106,8 @@ CRITICAL RULES (violating these WILL crash):
 - After writing to a BytesIO, ALWAYS call buf.seek(0) before using it.
 - NEVER write import statements. All names (Inches, Pt, BytesIO, Image, etc.) are pre-injected.
 - NEVER call Presentation() — use the `prs` argument.
-- When downloading images: use urlrequest, wrap in BytesIO, process with PIL, save back to BytesIO, seek(0), then pass the BytesIO directly to add_picture(). NEVER redefine no_shadow(). It is pre-injected and already safely handles NotImplementedError for shapes that don't support .shadow (tables, charts, GraphicFrame).
+- Image backgrounds: use the pre-injected `get_image_buf(url, darken=False)` function. It returns a BytesIO (already seek'd to 0) ready for add_picture(). Do NOT use urlrequest to download images — all images referenced in the structure are pre-downloaded and available via get_image_buf(). If darken=True, the image is already darkened with ImageEnhance(0.6).
+  NEVER redefine no_shadow(). It is pre-injected and already safely handles NotImplementedError for shapes that don't support .shadow (tables, charts, GraphicFrame).
   Just call no_shadow(shape) directly on every add_shape result.
   WRONG: text_frame.vertical_anchor = 2        WRONG: paragraph.alignment = 1
   RIGHT: text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
@@ -218,7 +219,7 @@ def _build_batch_code(
 
 # ─── EXECUTE GENERATED CODE ───────────────────────────────────────────────────
 
-def _make_namespace() -> dict:
+def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
     """Create the restricted execution namespace with pre-injected globals."""
     import pptx
     import pptx.chart.data
@@ -250,8 +251,9 @@ def _make_namespace() -> dict:
         if hasattr(_builtins, name)
     }
 
-    return {
+    ns: dict = {
         "__builtins__": safe_builtins,
+        "__image_buffers__": image_buffers or {},
         "Inches": pptx.util.Inches,
         "Pt": pptx.util.Pt,
         "Emu": pptx.util.Emu,
@@ -272,6 +274,31 @@ def _make_namespace() -> dict:
         "BytesIO": BytesIO,
         "no_shadow": _no_shadow,
     }
+    if image_buffers:
+        ns["get_image_buf"] = _get_image_buf_factory(image_buffers)
+    return ns
+
+
+def _get_image_buf_factory(image_buffers: dict[str, bytes]):
+    """Return a get_image_buf(url, darken=False) closure that looks up
+    pre-downloaded images, wrapping them in BytesIO and optionally darkening."""
+    from io import BytesIO
+    from PIL import Image, ImageEnhance
+
+    def _get_image_buf(url: str, darken: bool = False):
+        data = image_buffers.get(url)
+        if data is None:
+            raise ValueError(f"Image URL not pre-downloaded: {url}")
+        img = Image.open(BytesIO(data))
+        if darken:
+            enhancer = ImageEnhance.Brightness(img)
+            img = enhancer.enhance(0.6)
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+
+    return _get_image_buf
 
 
 def _execute_batch(
@@ -290,7 +317,13 @@ def _execute_batch(
             f"Available callables: {available}"
         )
 
-    build_fn(prs, logo_bytes=logo_bytes, icons=icons or {})
+    kwargs = {"logo_bytes": logo_bytes, "icons": icons or {}}
+    # Only pass image_buffers if the function signature accepts it
+    import inspect
+    sig = inspect.signature(build_fn)
+    if "image_buffers" in sig.parameters:
+        kwargs["image_buffers"] = namespace.get("__image_buffers__", {})
+    build_fn(prs, **kwargs)
 
 
 # ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
@@ -320,6 +353,27 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                 print(f"[{job_id}] Stage 0: Logo downloaded ({len(logo_bytes)} bytes)")
             except Exception:  # noqa: BLE001
                 logo_bytes = None
+
+        # ── Stage 0.2: Pre-download background images ────────────────────
+        print(f"[{job_id}] Stage 0.2: Pre-downloading background images...")
+        image_urls: set[str] = set()
+        for slide in structure.get("slides", []):
+            url = slide.get("image_url")
+            if url:
+                image_urls.add(url)
+        image_buffers: dict[str, bytes] = {}
+        if image_urls:
+            print(f"[{job_id}] Stage 0.2: Downloading {len(image_urls)} unique images...")
+            for url in sorted(image_urls):
+                try:
+                    req = urlrequest.Request(url=url, method="GET")
+                    with urlrequest.urlopen(req, timeout=15) as resp:
+                        image_buffers[url] = resp.read()
+                except Exception:  # noqa: BLE001
+                    print(f"[{job_id}] Stage 0.2: Failed to download image {url[:80]}..., skipping")
+            print(f"[{job_id}] Stage 0.2: Downloaded {len(image_buffers)}/{len(image_urls)} images")
+        else:
+            print(f"[{job_id}] Stage 0.2: No background images in structure")
 
         # ── Stage 0.5: Collect & download icons ────────────────────────────
         print(f"[{job_id}] Stage 0.5: Collecting icons from structure...")
@@ -373,7 +427,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         prs = _Prs()
         prs.slide_width = pptx.util.Inches(13.33)
         prs.slide_height = pptx.util.Inches(7.5)
-        namespace = _make_namespace()
+        namespace = _make_namespace(image_buffers)
         all_code: list[str] = []
 
         last_error = ""
@@ -410,23 +464,42 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                     if attempt < 2:
                         _update_job(job_id, stage_message=f"Fixing batch {batch_num} (attempt {attempt + 2}/3)\u2026")
                         print(f"[{job_id}] Batch {batch_num}/{total_batches}: requesting fix from API...")
-                        fix_response = client.chat.completions.create(
-                            model=QWEN_MODEL,
-                            messages=[
-                                {"role": "system", "content": _BUILD_SYSTEM},
-                                {"role": "user", "content": (
-                                    f"The following code raised an error:\n\n{batch_code}\n\n"
-                                    f"Error: {last_error}\n\n"
-                                    f"Fix the code and return only the corrected function named `{fn_name}`.\n"
-                                    "REMINDER: All modules are already injected as global variables — "
-                                    "remove any import statements and use the pre-injected names directly."
-                                )},
-                            ],
-                            max_tokens=16000,
-                            timeout=120.0,
-                        )
-                        batch_code = fix_response.choices[0].message.content or batch_code
-                        print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix received ({len(batch_code)} chars)")
+                        fix_code = batch_code
+                        fix_exc = None
+                        for fix_retry in range(3):
+                            try:
+                                print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix API call (attempt {fix_retry+1}/3)...")
+                                fix_response = client.chat.completions.create(
+                                    model=QWEN_MODEL,
+                                    messages=[
+                                        {"role": "system", "content": _BUILD_SYSTEM},
+                                        {"role": "user", "content": (
+                                            f"The following code raised an error:\n\n{batch_code}\n\n"
+                                            f"Error: {last_error}\n\n"
+                                            f"Fix the code and return only the corrected function named `{fn_name}`.\n"
+                                            "REMINDER: All modules are already injected as global variables — "
+                                            "remove any import statements and use the pre-injected names directly."
+                                        )},
+                                    ],
+                                    max_tokens=16000,
+                                    timeout=600.0,
+                                )
+                                fix_code = fix_response.choices[0].message.content or batch_code
+                                print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix received ({len(fix_code)} chars)")
+                                fix_exc = None
+                                break
+                            except Exception as fix_err:  # noqa: BLE001
+                                fix_exc = fix_err
+                                print(f"[{job_id}] Batch {batch_num}/{total_batches}: fix API attempt {fix_retry+1} failed: {fix_err}")
+                                if fix_retry < 2:
+                                    wait = (fix_retry + 1) * 10
+                                    print(f"[{job_id}] Waiting {wait}s before fix retry...")
+                                    time.sleep(wait)
+                        if fix_exc is not None:
+                            raise RuntimeError(
+                                f"Fix API call failed after 3 attempts: {fix_exc}"
+                            ) from fix_exc
+                        batch_code = fix_code
                         all_code[-1] = batch_code
 
             if not batch_ok:
