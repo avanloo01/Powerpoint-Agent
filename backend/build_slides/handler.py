@@ -136,7 +136,7 @@ STYLE GUIDE:
   Pt(0.5) rect LIGHT_GRAY at sep_x = col1_x + col1_w + gap/2 - Pt(0.25).
   line_top = min(col_tops). line_bottom = Cm(15.93) - Inches(0.15).
   Causal: MSO_SHAPE.ISOSCELES_TRIANGLE Pt(12)×Pt(8), rotation=90, left=sep_x (base on line), same gray fill, vertically centered at line midpoint.
-- SHAPE OUTLINES: After creating any filled shape, explicitly remove its outline: shape.line.fill.background(). This prevents PowerPoint default blue borders.
+- SHAPE OUTLINES: After creating any filled shape, call remove_outline(shape) to remove the default blue border. This is pre-injected and safely skips shapes that don't support .line (charts, tables, GraphicFrame). NEVER call shape.line.fill.background() directly — it crashes on charts.
 - sources: bottom-left 8pt gray.
 - logo: top-right ~0.6in tall, BytesIO(logo_bytes).
 - charts: Use python-pptx native charts (ChartData + add_chart). Simple, clean styling:
@@ -238,6 +238,13 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
         except (NotImplementedError, AttributeError):
             pass
 
+    def _remove_outline(shape):
+        """Safely remove shape outline — silently skips shapes that don't support .line (charts, tables, GraphicFrame)."""
+        try:
+            shape.line.fill.background()
+        except (NotImplementedError, AttributeError):
+            pass
+
     _SAFE_NAMES = (
         "abs", "bool", "dict", "enumerate", "float", "globals", "hasattr", "int",
         "isinstance", "len", "list", "max", "min", "print", "range",
@@ -273,6 +280,7 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
         "ImageEnhance": ImageEnhance,
         "BytesIO": BytesIO,
         "no_shadow": _no_shadow,
+        "remove_outline": _remove_outline,
     }
     if image_buffers:
         ns["get_image_buf"] = _get_image_buf_factory(image_buffers)
