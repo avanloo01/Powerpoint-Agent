@@ -85,11 +85,8 @@ python-pptx Presentation object `prs`. ONLY return the function code, no markdow
 CONSTRAINTS:
 - `prs` has slide_width=Inches(13.33), slide_height=Inches(7.5). Use slide_layouts[6] (blank).
 - DO NOT call Presentation() — use the `prs` argument.
-- DO NOT write ANY import statements. The following names are already injected as
-  global variables and can be used directly without importing:
-  Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, MSO_SHAPE,
-  MSO_ANCHOR, MSO_AUTO_SIZE, io, math, json, urlrequest (urllib.request),
-  Image, ImageEnhance (PIL), BytesIO, no_shadow (safe shadow-disabler)
+- DO NOT write ANY import statements. The following names are already injected as global variables and can be used directly without importing:
+  Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, MSO_SHAPE, MSO_ANCHOR, MSO_AUTO_SIZE, io, math, json, urlrequest (urllib.request), Image, ImageEnhance (PIL), BytesIO, no_shadow (safe shadow-disabler)
 - Return ONLY valid Python 3.12 function code (no fences, no extra text).
 
 CRITICAL RULES (violating these WILL crash):
@@ -99,10 +96,7 @@ CRITICAL RULES (violating these WILL crash):
 - After writing to a BytesIO, ALWAYS call buf.seek(0) before using it.
 - NEVER write import statements. All names (Inches, Pt, BytesIO, Image, etc.) are pre-injected.
 - NEVER call Presentation() — use the `prs` argument.
-- When downloading images: use urlrequest, wrap in BytesIO, process with PIL, save back to
-  BytesIO, seek(0), then pass the BytesIO directly to add_picture().
-  NEVER redefine no_shadow(). It is pre-injected and already safely handles
-  NotImplementedError for shapes that don't support .shadow (tables, charts, GraphicFrame).
+- When downloading images: use urlrequest, wrap in BytesIO, process with PIL, save back to BytesIO, seek(0), then pass the BytesIO directly to add_picture(). NEVER redefine no_shadow(). It is pre-injected and already safely handles NotImplementedError for shapes that don't support .shadow (tables, charts, GraphicFrame).
   Just call no_shadow(shape) directly on every add_shape result.
   WRONG: text_frame.vertical_anchor = 2        WRONG: paragraph.alignment = 1
   RIGHT: text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
@@ -110,8 +104,7 @@ CRITICAL RULES (violating these WILL crash):
   Same for MSO_SHAPE, XL_CHART_TYPE, etc.
 
 STYLE GUIDE:
-- COLOR CONSTANTS: At the top of your function, define PRIMARY = RGBColor(...) using
-  the primary color from the prompt. Use PRIMARY for all colored elements.
+- COLOR CONSTANTS: At the top of your function, define PRIMARY = RGBColor(...) using the primary color from the prompt. Use PRIMARY for all colored elements.
   Only define ACCENT = RGBColor(...) if you add charts — use it for chart series only.
 - title_slide: bg=darkened image (ImageEnhance 0.6). Title 54pt bold white centered, word_wrap=True.
 - section_divider: bg=darkened image, then:
@@ -122,25 +115,27 @@ STYLE GUIDE:
      THEN tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT (so .height reflects real text).
   d) Section Label: y = title_tb.top+title_tb.height+Cm(0.2), same x/w, h=Cm(0.6), gray 16pt.
      NEVER hardcode y — derive from title_tb.
-- content_slide: use slide.background.fill.solid(); slide.background.fill.fore_color.rgb =
-  RGBColor(255,255,255). Do NOT add a white rectangle shape.
+- content_slide: use slide.background.fill.solid(); slide.background.fill.fore_color.rgb = RGBColor(255,255,255). Do NOT add a white rectangle shape.
   Section label 9pt gray top-left. Title 22pt bold black below, word_wrap=True.
 - box_headers: PRIMARY rect, white bold 12pt. Inset: x=col_x+Inches(0.08), w=col_w-Inches(0.16),
   margin_left=Inches(0.1).
-- bullets: icons dict → BytesIO → add_picture Pt(22)×Pt(22). Stack title (bold 10pt)
-  then description (8pt) below it with a small gap. Vertically center icon with the
-  title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
+- bullets: icons dict → BytesIO → add_picture Pt(22)×Pt(22). Stack title (bold 10pt) then description (8pt) below it with a small gap. Vertically center icon with the title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
   Fallback only if icon missing: MSO_SHAPE.OVAL Pt(10), PRIMARY fill.
-- separators: FIRST compute column widths correctly: usable = sw - 2*margin - gap,
-  then col_w = usable * width_ratio. This ensures the gap is real space between columns.
+- separators: FIRST compute column widths correctly: usable = sw - 2*margin - gap, then col_w = usable * width_ratio. This ensures the gap is real space between columns.
   Pt(0.5) rect LIGHT_GRAY at sep_x = col1_x + col1_w + gap/2 - Pt(0.25).
   line_top = min(col_tops). line_bottom = Cm(15.93) - Inches(0.15).
-  Causal: MSO_SHAPE.ISOSCELES_TRIANGLE Pt(12)×Pt(8), rotation=90, left=sep_x (base on line),
-  same gray fill, vertically centered at line midpoint.
-- SHAPE OUTLINES: After creating any filled shape, explicitly remove its outline:
-  shape.line.fill.background(). This prevents PowerPoint default blue borders.
+  Causal: MSO_SHAPE.ISOSCELES_TRIANGLE Pt(12)×Pt(8), rotation=90, left=sep_x (base on line), same gray fill, vertically centered at line midpoint.
+- SHAPE OUTLINES: After creating any filled shape, explicitly remove its outline: shape.line.fill.background(). This prevents PowerPoint default blue borders.
 - sources: bottom-left 8pt gray.
 - logo: top-right ~0.6in tall, BytesIO(logo_bytes).
+- charts: Use python-pptx native charts (ChartData + add_chart). Simple, clean styling:
+  Remove gridlines: chart.value_axis.has_major_gridlines = False.
+  Remove chart border: chart.element.get_or_add_cTChartSpace().get_or_add_cTChart().get_or_add_cTPlotArea().get_or_add_cTPlotArea().spPr is not present by default, so just set chart.chart_style = 2 for a clean look.
+  Colors: series.format.fill.solid(); series.format.fill.fore_color.rgb = PRIMARY.
+  For second series use ACCENT. Data labels: plot.has_data_labels = True;
+  data_labels = plot.data_labels; data_labels.show_value = True.
+  Bar charts: hide value axis via chart.value_axis.visible = False;
+  category axis stays visible. Pie charts: data_labels.show_percentage = True.
 - no_shadow() on EVERY add_shape result. NEVER shape.shadow.inherit = False.
 """)
 
