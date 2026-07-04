@@ -17,7 +17,6 @@ import traceback
 from urllib import request as urlrequest
 
 import boto3
-import cairosvg
 from openai import OpenAI
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -61,18 +60,29 @@ def _update_job(job_id: str, **fields: object) -> None:
     )
 
 
-# ─── SVG RECOLORING ───────────────────────────────────────────────────────────
+# ─── ICON RENDERING (Pillow-only, no cairo needed) ────────────────────────────
 
-def _recolor_svg(svg_bytes: bytes, hex_color: str) -> bytes:
-    """Replace fill and stroke colors in SVG with the given hex color.
-    Preserves 'none' fills and strokes."""
-    svg_str = svg_bytes.decode("utf-8")
-    svg_str = re.sub(r'fill="(?!none)([^"]*)"', f'fill="{hex_color}"', svg_str)
-    svg_str = re.sub(r'stroke="(?!none)([^"]*)"', f'stroke="{hex_color}"', svg_str)
-    svg_str = re.sub(r'fill:(?!none)([^;"]+)', f'fill:{hex_color}', svg_str)
-    svg_str = re.sub(r'stroke:(?!none)([^;"]+)', f'stroke:{hex_color}', svg_str)
-    svg_str = svg_str.replace('currentColor', hex_color)
-    return svg_str.encode("utf-8")
+def _recolor_png(png_bytes: bytes, hex_color: str) -> bytes:
+    """Recolor a single-colour PNG icon by replacing the RGB of all
+    non-transparent pixels with the target hex colour, preserving alpha."""
+    from io import BytesIO
+    from PIL import Image
+
+    img = Image.open(BytesIO(png_bytes)).convert("RGBA")
+    data = bytearray(img.tobytes())
+    w, h = img.size
+    r, g, b = int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16)
+    for y in range(h):
+        for x in range(w):
+            idx = (y * w + x) * 4
+            if data[idx + 3] > 0:  # non-transparent pixel
+                data[idx] = r
+                data[idx + 1] = g
+                data[idx + 2] = b
+    out = BytesIO()
+    Image.frombytes("RGBA", (w, h), bytes(data)).save(out, format="PNG")
+    out.seek(0)
+    return out.read()
 
 
 # ─── BUILD AGENT ─────────────────────────────────────────────────────────────
@@ -163,10 +173,10 @@ def _build_batch_code(
         if has_logo else "No logo will be provided — your function does NOT need a `logo_bytes` parameter."
     )
     icon_note = (
-        "An `icons` dict (filename → SVG bytes) is passed as a PARAMETER to your function — "
+        "An `icons` dict (filename → PNG bytes) is passed as a PARAMETER to your function — "
         f"include it in your signature: def {fn_name}(prs, logo_bytes=None, icons=None). "
-        "Use icons[bullet['icon']] to get each icon's SVG bytes."
-        if has_icons else "No icons are provided — your function does NOT need an `icons` parameter. Use UNICODE bullets if really necessary."
+        "Use icons[bullet['icon']] as a BytesIO source for add_picture()."
+        if has_icons else "No icons are provided — your function does NOT need an `icons` parameter. Use MSO_SHAPE.OVAL Pt(10), PRIMARY fill as fallback."
     )
     batch_structure: dict = {"slides": batch_slides}
     structure_json = json.dumps(batch_structure, indent=2)
@@ -323,15 +333,15 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                         icon_names.add(icon_name)
         if icon_names:
             primary_color = settings.get("primary_color", "#C00000")
-            print(f"[{job_id}] Stage 0.5: Downloading {len(icon_names)} unique icons...")
+            print(f"[{job_id}] Stage 0.5: Downloading {len(icon_names)} unique icons (PNG)...")
             for name in sorted(icon_names):
                 try:
                     buf = io.BytesIO()
-                    s3.download_fileobj(S3_OUTPUT_BUCKET, f"icons/{name}", buf)
-                    # Recolor SVG to primary color, then convert to PNG
-                    colored_svg = _recolor_svg(buf.getvalue(), primary_color)
-                    png_bytes = cairosvg.svg2png(bytestring=colored_svg)
-                    icons[name] = png_bytes
+                    png_name = name.replace(".svg", ".png")
+                    s3.download_fileobj(S3_OUTPUT_BUCKET, f"icons/{png_name}", buf)
+                    # Recolour PNG to the user's primary colour
+                    recolored = _recolor_png(buf.getvalue(), primary_color)
+                    icons[name] = recolored
                 except Exception:  # noqa: BLE001
                     print(f"[{job_id}] Stage 0.5: Failed to download icon {name}, skipping")
             print(f"[{job_id}] Stage 0.5: Downloaded {len(icons)}/{len(icon_names)} icons")
