@@ -12,10 +12,12 @@ import math
 import os
 import re
 import textwrap
+import time
 import traceback
 from urllib import request as urlrequest
 
 import boto3
+import cairosvg
 from openai import OpenAI
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -59,6 +61,20 @@ def _update_job(job_id: str, **fields: object) -> None:
     )
 
 
+# ─── SVG RECOLORING ───────────────────────────────────────────────────────────
+
+def _recolor_svg(svg_bytes: bytes, hex_color: str) -> bytes:
+    """Replace fill and stroke colors in SVG with the given hex color.
+    Preserves 'none' fills and strokes."""
+    svg_str = svg_bytes.decode("utf-8")
+    svg_str = re.sub(r'fill="(?!none)([^"]*)"', f'fill="{hex_color}"', svg_str)
+    svg_str = re.sub(r'stroke="(?!none)([^"]*)"', f'stroke="{hex_color}"', svg_str)
+    svg_str = re.sub(r'fill:(?!none)([^;"]+)', f'fill:{hex_color}', svg_str)
+    svg_str = re.sub(r'stroke:(?!none)([^;"]+)', f'stroke:{hex_color}', svg_str)
+    svg_str = svg_str.replace('currentColor', hex_color)
+    return svg_str.encode("utf-8")
+
+
 # ─── BUILD AGENT ─────────────────────────────────────────────────────────────
 
 _BUILD_SYSTEM = textwrap.dedent("""\
@@ -72,7 +88,8 @@ CONSTRAINTS:
 - DO NOT write ANY import statements. The following names are already injected as
   global variables and can be used directly without importing:
   Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, MSO_SHAPE,
-  io, math, json, urlrequest (urllib.request), Image, ImageEnhance (PIL), BytesIO
+  MSO_ANCHOR, MSO_AUTO_SIZE, io, math, json, urlrequest (urllib.request),
+  Image, ImageEnhance (PIL), BytesIO, no_shadow (safe shadow-disabler)
 - Return ONLY valid Python 3.12 function code (no fences, no extra text).
 
 CRITICAL RULES (violating these WILL crash):
@@ -84,27 +101,47 @@ CRITICAL RULES (violating these WILL crash):
 - NEVER call Presentation() — use the `prs` argument.
 - When downloading images: use urlrequest, wrap in BytesIO, process with PIL, save back to
   BytesIO, seek(0), then pass the BytesIO directly to add_picture().
+  NEVER redefine no_shadow(). It is pre-injected and already safely handles
+  NotImplementedError for shapes that don't support .shadow (tables, charts, GraphicFrame).
+  Just call no_shadow(shape) directly on every add_shape result.
+  WRONG: text_frame.vertical_anchor = 2        WRONG: paragraph.alignment = 1
+  RIGHT: text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+  RIGHT: paragraph.alignment = PP_ALIGN.CENTER
+  Same for MSO_SHAPE, XL_CHART_TYPE, etc.
 
-STYLE GUIDE (concise):
-- title_slide: download image, darken (ImageEnhance.Brightness, factor 0.6), insert as full-slide bg. Title bold 54pt white, centered.
-- section_divider: download & darken image as full-slide bg, then in order:
-  1. White rect: x=0, y=sh-Cm(5.74), w=sw, h=Cm(5.74)
-  2. Number square (fill with PRIMARY color RGBColor(primary_hex), NOT accent):
-     x=0, y=sh-Cm(5.74), w=Cm(5.74), h=Cm(5.74).
-     Display slide["section_number"] formatted as TWO DIGITS (e.g. "01", "02", "03"),
-     white bold 48pt. Center BOTH horizontally (PP_ALIGN.CENTER) AND vertically
-     (set text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE).
-  3. Title textbox (the question): x=Cm(6.27), y=Cm(14.0), w=sw-Cm(6.27)-Cm(1.0), h=Cm(1.0), bold black 32pt
-  4. Section label textbox: x=Cm(6.27), y=Cm(15.2), w=sw-Cm(6.27)-Cm(1.0), h=Cm(0.6), RGBColor(128,128,128) 16pt
-- Slide bg: white. Section label: top-left 9pt RGB(128,128,128). Slide title: bold 22pt black below label.
-- Box headers: primary-fill rects, white bold 12pt text, with padding (don't span full column width).
-- Column separators: 0.5pt light-gray line centered between columns, height matching the column content height only (from top of the first element in the columns to bottom of the last element, not extending into section label/title or conclusion/sources). Causal: use add_shape with MSO_SHAPE.DIAMOND (filled, accent color, ~10pt × ~6pt, centered on the line midpoint).
-- Bullets: Icons are PRE-DOWNLOADED and passed as a dict `icons` (key=filename like "acorn.svg", value=raw SVG bytes). For each bullet, get the icon bytes via `icons[bullet["icon"]]`, wrap in BytesIO, and pass directly to add_picture() at ~14pt × 14pt at the bullet's y-position. Then place bold title text to the right and description below. If a bullet has no icon field or the icon isn't in the dict, fall back to a small filled circle (add_shape with MSO_SHAPE.OVAL, ~8pt × 8pt).
-- Charts: ChartData + slide.shapes.add_chart().
-- Conclusion: 1pt primary border, centered italic 11pt, width = FULL content width (spanning all columns, matching the combined column area).
-- Sources: bottom-left 8pt RGB(128,128,128).
-- Logo: if logo_bytes, place on EVERY slide top-right (0.5-0.7in tall, right edge aligns with rightmost column, top with section label/title). Use BytesIO(logo_bytes) + add_picture().
-- NO SHADOWS: On EVERY shape you create (rectangles, text boxes, dividers, borders, conclusion box, box headers, number square, white rect on section dividers), set shape.shadow.inherit = False to remove any drop shadow. This gives slides a clean, flat look.
+STYLE GUIDE:
+- COLOR CONSTANTS: At the top of your function, define PRIMARY = RGBColor(...) using
+  the primary color from the prompt. Use PRIMARY for all colored elements.
+  Only define ACCENT = RGBColor(...) if you add charts — use it for chart series only.
+- title_slide: bg=darkened image (ImageEnhance 0.6). Title 54pt bold white centered, word_wrap=True.
+- section_divider: bg=darkened image, then:
+  white_rect_y = prs.slide_height - Cm(5.74)
+  a) White rect: 0, white_rect_y, sw, Cm(5.74). b) Number square: 0, white_rect_y, Cm(5.74)×Cm(5.74),
+     PRIMARY fill, f"{sn:02d}" white bold 48pt, PP_ALIGN.CENTER + MSO_ANCHOR.MIDDLE.
+  c) Title: Cm(6.27), white_rect_y+Cm(0.8), sw-Cm(7.27), h=Cm(2.5), word_wrap, bold black 32pt.
+     THEN tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT (so .height reflects real text).
+  d) Section Label: y = title_tb.top+title_tb.height+Cm(0.2), same x/w, h=Cm(0.6), gray 16pt.
+     NEVER hardcode y — derive from title_tb.
+- content_slide: use slide.background.fill.solid(); slide.background.fill.fore_color.rgb =
+  RGBColor(255,255,255). Do NOT add a white rectangle shape.
+  Section label 9pt gray top-left. Title 22pt bold black below, word_wrap=True.
+- box_headers: PRIMARY rect, white bold 12pt. Inset: x=col_x+Inches(0.08), w=col_w-Inches(0.16),
+  margin_left=Inches(0.1).
+- bullets: icons dict → BytesIO → add_picture Pt(22)×Pt(22). Stack title (bold 10pt)
+  then description (8pt) below it with a small gap. Vertically center icon with the
+  title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
+  Fallback only if icon missing: MSO_SHAPE.OVAL Pt(10), PRIMARY fill.
+- separators: FIRST compute column widths correctly: usable = sw - 2*margin - gap,
+  then col_w = usable * width_ratio. This ensures the gap is real space between columns.
+  Pt(0.5) rect LIGHT_GRAY at sep_x = col1_x + col1_w + gap/2 - Pt(0.25).
+  line_top = min(col_tops). line_bottom = Cm(15.93) - Inches(0.15).
+  Causal: MSO_SHAPE.ISOSCELES_TRIANGLE Pt(12)×Pt(8), rotation=90, left=sep_x (base on line),
+  same gray fill, vertically centered at line midpoint.
+- SHAPE OUTLINES: After creating any filled shape, explicitly remove its outline:
+  shape.line.fill.background(). This prevents PowerPoint default blue borders.
+- sources: bottom-left 8pt gray.
+- logo: top-right ~0.6in tall, BytesIO(logo_bytes).
+- no_shadow() on EVERY add_shape result. NEVER shape.shadow.inherit = False.
 """)
 
 
@@ -124,15 +161,18 @@ def _build_batch_code(
     """Generate python-pptx code for a single batch of slides."""
     primary = settings.get("primary_color", "#C00000")
     accent = settings.get("accent_color", "#A6CAEC")
+    fn_name = f"build_batch_{batch_num}"
     logo_note = (
-        "A logo_bytes parameter WILL be provided, place the logo on every slide."
-        if has_logo else "No logo will be provided."
+        "A `logo_bytes` PARAMETER will be passed to your function — include it in your signature. "
+        "Place the logo on every slide."
+        if has_logo else "No logo will be provided — your function does NOT need a `logo_bytes` parameter."
     )
     icon_note = (
-        "An `icons` dict (filename → SVG bytes) IS provided — use icons[bullet['icon']] to get each icon."
-        if has_icons else "No icons are provided — use UNICODE bullets if really necessary."
+        "An `icons` dict (filename → SVG bytes) is passed as a PARAMETER to your function — "
+        f"include it in your signature: def {fn_name}(prs, logo_bytes=None, icons=None). "
+        "Use icons[bullet['icon']] to get each icon's SVG bytes."
+        if has_icons else "No icons are provided — your function does NOT need an `icons` parameter. Use UNICODE bullets if really necessary."
     )
-    fn_name = f"build_batch_{batch_num}"
     batch_structure: dict = {"slides": batch_slides}
     structure_json = json.dumps(batch_structure, indent=2)
     user_msg = (
@@ -140,23 +180,35 @@ def _build_batch_code(
         f"Accent color: {accent}\n"
         f"Logo: {logo_note}\n"
         f"Icons: {icon_note}\n"
-        f"IMPORTANT: Name your function `{fn_name}` (NOT `build_presentation`).\n\n"
+        f"IMPORTANT: Name your function `{fn_name}`. Your function signature must be "
+        f"`def {fn_name}(prs, logo_bytes=None, icons=None):` (omit logo_bytes/icons only if told they're not provided).\n\n"
         f"Presentation structure:\n{structure_json}"
     )
     prompt_len = len(_BUILD_SYSTEM) + len(user_msg)
-    print(f"[{job_id}] Batch {batch_num}/{total_batches}: API call ({prompt_len} chars, timeout=300s)...")
-    response = client.chat.completions.create(
-        model=QWEN_MODEL,
-        messages=[
-            {"role": "system", "content": _BUILD_SYSTEM},
-            {"role": "user", "content": user_msg},
-        ],
-        max_tokens=16000,
-        timeout=300.0,
-    )
-    code = response.choices[0].message.content or ""
-    print(f"[{job_id}] Batch {batch_num}/{total_batches}: received {len(code)} chars")
-    return code
+    last_exc = None
+    for retry in range(3):
+        try:
+            print(f"[{job_id}] Batch {batch_num}/{total_batches}: API call ({prompt_len} chars, timeout=600s, attempt {retry+1}/3)...")
+            response = client.chat.completions.create(
+                model=QWEN_MODEL,
+                messages=[
+                    {"role": "system", "content": _BUILD_SYSTEM},
+                    {"role": "user", "content": user_msg},
+                ],
+                max_tokens=16000,
+                timeout=600.0,
+            )
+            code = response.choices[0].message.content or ""
+            print(f"[{job_id}] Batch {batch_num}/{total_batches}: received {len(code)} chars")
+            return code
+        except Exception as exc:
+            last_exc = exc
+            print(f"[{job_id}] Batch {batch_num}/{total_batches}: API attempt {retry+1} failed: {exc}")
+            if retry < 2:
+                wait = (retry + 1) * 30
+                print(f"[{job_id}] Waiting {wait}s before retry...")
+                time.sleep(wait)
+    raise last_exc  # type: ignore[misc]
 
 
 # ─── EXECUTE GENERATED CODE ───────────────────────────────────────────────────
@@ -173,8 +225,15 @@ def _make_namespace() -> dict:
     from io import BytesIO
     from PIL import Image, ImageEnhance
 
+    def _no_shadow(shape):
+        """Safely disable shadows — silently skips shapes that don't support .shadow (pictures, charts, tables)."""
+        try:
+            shape.shadow.inherit = False
+        except (NotImplementedError, AttributeError):
+            pass
+
     _SAFE_NAMES = (
-        "abs", "bool", "dict", "enumerate", "float", "hasattr", "int",
+        "abs", "bool", "dict", "enumerate", "float", "globals", "hasattr", "int",
         "isinstance", "len", "list", "max", "min", "print", "range",
         "round", "set", "str", "sum", "tuple", "zip",
         "Exception", "ValueError", "TypeError", "KeyError",
@@ -206,6 +265,7 @@ def _make_namespace() -> dict:
         "Image": Image,
         "ImageEnhance": ImageEnhance,
         "BytesIO": BytesIO,
+        "no_shadow": _no_shadow,
     }
 
 
@@ -267,12 +327,16 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                     if icon_name:
                         icon_names.add(icon_name)
         if icon_names:
+            primary_color = settings.get("primary_color", "#C00000")
             print(f"[{job_id}] Stage 0.5: Downloading {len(icon_names)} unique icons...")
             for name in sorted(icon_names):
                 try:
                     buf = io.BytesIO()
                     s3.download_fileobj(S3_OUTPUT_BUCKET, f"icons/{name}", buf)
-                    icons[name] = buf.getvalue()
+                    # Recolor SVG to primary color, then convert to PNG
+                    colored_svg = _recolor_svg(buf.getvalue(), primary_color)
+                    png_bytes = cairosvg.svg2png(bytestring=colored_svg)
+                    icons[name] = png_bytes
                 except Exception:  # noqa: BLE001
                     print(f"[{job_id}] Stage 0.5: Failed to download icon {name}, skipping")
             print(f"[{job_id}] Stage 0.5: Downloaded {len(icons)}/{len(icon_names)} icons")
