@@ -231,6 +231,19 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
     from io import BytesIO
     from PIL import Image, ImageEnhance
 
+    # ── Patch pptx to accept float coordinates (AI often divides EMU ints) ──
+    import pptx.oxml.simpletypes as _simpletypes
+    _orig_validate_int = _simpletypes.BaseSimpleType.validate_int
+
+    @staticmethod
+    def _lenient_validate_int(value: int | float) -> None:
+        """Validate but auto-convert float → int (safe: EMU rounding is sub-pixel)."""
+        if isinstance(value, float):
+            value = int(value)
+        return _orig_validate_int(value)
+
+    _simpletypes.BaseSimpleType.validate_int = _lenient_validate_int
+
     def _no_shadow(shape):
         """Safely disable shadows — silently skips shapes that don't support .shadow (pictures, charts, tables)."""
         try:
