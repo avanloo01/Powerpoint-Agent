@@ -168,7 +168,8 @@ Rules:
 - For charts: always include ACTUAL data matching the research findings. Every chart must have at least 3 data points (x_labels) to be meaningful.
 - CONCLUSION BOXES: Add conclusion_box to content slides as much as possible. Each conclusion box should capture the causal "so what?". Frame it as a decisive, forward-looking statement (1-2 sentences). This creates a causal thread connecting slides throughout the presentation.
 - For sources, write the author in the sources field (this will appear on the slide), write the actual url in the notes field (this will not appear on the slide but is useful for the user)
-- ICONS (exhaustive list): The icon list shown above is COMPLETE AND EXHAUSTIVE. You MUST ONLY choose icon filenames from this exact list. Do not invent, hallucinate, or guess icon names (e.g., "chart-line-up.png" exists, "growth.png" does NOT). Choose the closest one available.
+- ICONS (exhaustive list): The icon list above is COMPLETE AND EXHAUSTIVE. Every filename ends in .png — NEVER use .svg, .jpg, or any other extension. You MUST pick from this exact list only. Do not invent names ("chart-line-up.png" is valid; "growth.png" and "chart-line-up.svg" are NOT). If unsure, choose the closest match in the list.
+- BULLET TEXT: NEVER use Unicode arrow or symbol characters (↑ ↓ → ← ✓ ✗ ● ◆ etc.) as substitutes for icons. Use the icon field for all iconography. Plain currency signs (¥ $ €) and standard punctuation in descriptions are fine.
 - Use 12–15 slides total; group related slides under the same section_label
 """)
 
