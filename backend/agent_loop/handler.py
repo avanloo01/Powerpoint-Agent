@@ -88,33 +88,40 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
     research_md = response.choices[0].message.content or ""
 
     # ── Image search for title / section-divider backgrounds ───────────────
-    image_prompt = (
-        f"Find 4-5 high-quality, professional background images for a business "
-        f"presentation on this specific topic: '{prompt}'. "
-        f"The images must be DIRECTLY RELEVANT to the core subject matter — not generic "
-        f"office or business stock photos. They should be simple, modern, and work well "
-        f"as full-slide backgrounds (title slide and section dividers). "
-        f"For each topic, identify its most iconic visual elements and search for those specifically. "
-        f"For example: for 'electric vehicles' search for 'EV charging station', 'electric car assembly line', "
-        f"'lithium battery production'; for 'remote work trends' search for 'modern home office setup', "
-        f"'distributed team collaboration'. "
-        f"Avoid abstract concepts like 'growth arrow' or 'handshake' — pick images that tell the topic's story at a glance. "
-        f"For each image found, include its URL."
+    img_system = (
+        "You are a visual researcher. Find real, publicly accessible image URLs "
+        "suitable as full-slide backgrounds for a presentation. "
+        "For every image you find, output its direct URL on its own line prefixed "
+        "with exactly 'IMG_URL: ' (nothing else on that line)."
     )
+    img_user = (
+        f"Find 8 background images for a business presentation about: {p!r}.\n"
+        f"Requirements:\n"
+        f"- Images must be DIRECTLY relevant to the topic — no generic offices, consultants, arrows ...\n"
+        f"- Prefer dramatic, high-contrast visuals that look good darkened to 60% brightness\n"
+        f"- Identify the most iconic visual element of the topic (e.g., a company name or product) and search for that specifically\n"
+        f"  Example: 'JD.com' → 'China logistics warehouse', 'e-commerce delivery fleet'\n"
+        f"  Example: 'electric vehicles' → 'EV charging station', 'electric car factory'\n"
+        f"Output format — one URL per line:\n"
+        f"IMG_URL: https://...\n"
+    )
+    img_text = ""
     try:
-        image_response = client.responses.create(
+        # Primary path: Qwen web_search_image (responses API)
+        img_resp = client.responses.create(
             model=QWEN_MODEL,
-            input=image_prompt,
+            input=img_user,
+            instructions=img_system,
             tools=[{"type": "web_search_image"}],
         )
-        image_text = image_response.output_text
-        if image_text:
-            research_md += "\n\n## Image Search Results (for title & divider backgrounds)\n\n" + image_text
-    except Exception:  # noqa: BLE001 – non-critical; proceed without images
+        img_text = getattr(img_resp, "output_text", "") or ""
+    except Exception:  # noqa: BLE001
         pass
 
-    return research_md
+    if img_text:
+        research_md += "\n\n## Background Image URLs\n\n" + img_text
 
+    return research_md
 
 # ─── STRUCTURE AGENT ─────────────────────────────────────────────────────────
 
@@ -163,11 +170,11 @@ Rules:
 - full_width: exactly 1 column, width_ratio (no padding here) = 1.0
 - title_slide: the title of this slide is the presentation title. No other content is needed.
 - section_divider: for the title of the slide, write an interesting question that covers the content of that section; for the section_label, give the name of the section. No other content is needed.
-- image_url: the research document should contain images that can be used as the background for the title slide and section divider slides. Use the urls available for relevant title slides and section divider slides. If no relevant image is found, set image_url to null.
+- image_url: look for lines in the research document's "Background Image URLs" section that start with "IMG_URL: ". Use those URLs for title slides and section dividers (assign different images to different slides). Set image_url to null only if no IMG_URL lines are present.
 - CHART PRIORITY (critical): Use charts as your DEFAULT content type whenever numerical data exists in the research. At least 40-50% of content slides should contain a chart. Only use bullet_list or text when the data genuinely cannot be charted or you refer to an actual list. Prefer line for trends, pie for composition, bar for rankings, grouped_bar for comparisons.
 - For charts: always include ACTUAL data matching the research findings. Every chart must have at least 3 data points (x_labels) to be meaningful.
 - CONCLUSION BOXES: Add conclusion_box to content slides as much as possible. Each conclusion box should capture the causal "so what?". Frame it as a decisive, forward-looking statement (1-2 sentences). This creates a causal thread connecting slides throughout the presentation.
-- For sources, write the author in the sources field (this will appear on the slide), write the actual url in the notes field (this will not appear on the slide but is useful for the user)
+- For sources, write a short readable label (author, org, or report name) in the sources field — NEVER use inline citation brackets like [1][4][6]. Write the actual URL in the notes field.
 - ICONS (exhaustive list): The icon list above is COMPLETE AND EXHAUSTIVE. Every filename ends in .png — NEVER use .svg, .jpg, or any other extension. You MUST pick from this exact list only. Do not invent names ("chart-line-up.png" is valid; "growth.png" and "chart-line-up.svg" are NOT). If unsure, choose the closest match in the list.
 - BULLET TEXT: NEVER use Unicode arrow or symbol characters (↑ ↓ → ← ✓ ✗ ● ◆ etc.) as substitutes for icons. Use the icon field for all iconography. Plain currency signs (¥ $ €) and standard punctuation in descriptions are fine.
 - Use 12–15 slides total; group related slides under the same section_label

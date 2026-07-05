@@ -115,8 +115,12 @@ STYLE GUIDE:
     CONCLUSION_H   = Cm(1.2)
     SOURCES_Y      = sh - Cm(0.9)
     CONTENT_BOTTOM = CONCLUSION_Y - Cm(0.2)
-- title_slide: get_image_buf(url, darken=True) → add_picture full-slide. Title 54pt bold white centered.
-- section_divider: get_image_buf(url, darken=True) → add_picture full-slide. Then:
+- title_slide: if image_url provided: get_image_buf(url, darken=True) → add_picture(buf,0,0,sw,sh).
+  If image_url is null: add_shape(RECTANGLE,0,0,sw,sh) filled RGBColor(40,40,40), no_shadow, remove_outline.
+  Title 54pt bold white centered.
+- section_divider: if image_url provided: get_image_buf(url, darken=True) → add_picture(buf,0,0,sw,sh).
+  If image_url is null: add_shape(RECTANGLE,0,0,sw,sh) filled RGBColor(40,40,40), no_shadow, remove_outline.
+  Then:
     wy = sh - Cm(5.74)
     a) White rect (0, wy, sw, Cm(5.74))
     b) Number square (0, wy, Cm(5.74), Cm(5.74)): PRIMARY fill, "{n:02d}" white bold 48pt, CENTER+MIDDLE
@@ -127,6 +131,9 @@ STYLE GUIDE:
   Section label 9pt gray; title 22pt bold black; both word_wrap=True.
 - box_headers: PRIMARY rect at (col_x+Inches(0.08), col_y, col_w-Inches(0.16), h),
   white bold 12pt, margin_left=Inches(0.1).
+- column subtitle: if a column's "subtitle" field is non-null, add a textbox
+  (col_x+Inches(0.08), header_bottom, col_w-Inches(0.16), Cm(0.4)): 8pt gray italic text.
+  Increment content start y by Cm(0.4) + Inches(0.05) before rendering chart/bullets.
 - bullets: icons[filename] → BytesIO → add_picture Pt(22)×Pt(22). Title bold 10pt, description 8pt.
   Icon y-centred with title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
   Fallback if missing: MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
@@ -141,7 +148,7 @@ STYLE GUIDE:
       tri = add_shape(ISOSCELES_TRIANGLE, tri_cx-Pt(6), tri_cy-Pt(4), Pt(12), Pt(8))
       tri.rotation = 90  # rotation=90 keeps bounding-box centre at (tri_cx,tri_cy); apex points right
       tri.fill.solid(); tri.fill.fore_color.rgb = LIGHT_GRAY; no_shadow(tri); remove_outline(tri)
-- conclusion_box: if non-null, draw BEFORE sources:
+- conclusion_box: if non-null, draw BEFORE sources using MSO_SHAPE.RECTANGLE (NEVER ROUNDED_RECTANGLE):
     box = add_shape(RECTANGLE, margin, CONCLUSION_Y, sw-2*margin, CONCLUSION_H)
     box.fill.background(); no_shadow(box)  ← do NOT remove_outline — border is intentional
     box.line.color.rgb = PRIMARY; box.line.width = Pt(1.0)
@@ -150,6 +157,11 @@ STYLE GUIDE:
   RENDER ORDER: columns → separator → conclusion_box → sources → logo
 - logo: top-right, ~0.6in tall, BytesIO(logo_bytes).
 - charts: ChartData + add_chart. chart.chart_style = 2.
+  Chart type mapping (use EXACTLY these):
+    "bar"         → XL_CHART_TYPE.BAR_CLUSTERED      (horizontal bars)
+    "grouped_bar" → XL_CHART_TYPE.COLUMN_CLUSTERED  (vertical grouped bars)
+    "line"        → XL_CHART_TYPE.LINE
+    "pie"         → XL_CHART_TYPE.PIE
     content_y = col_top + box_header_h + Inches(0.1)
     chart_h = max(CONTENT_BOTTOM - content_y - Inches(0.1), Inches(2.5))
     # column also has bullets below chart: chart_h = (CONTENT_BOTTOM - content_y) * 0.55
