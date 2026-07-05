@@ -147,6 +147,7 @@ STYLE GUIDE:
   data_labels = plot.data_labels; data_labels.show_value = True.
   Bar charts: hide value axis via chart.value_axis.visible = False;
   category axis stays visible. Pie charts: data_labels.show_percentage = True.
+  NEVER call chart.replace_data() or replace_series_data() — always build all chart data through ChartData at creation time and pass it directly to add_chart().
 - no_shadow() on EVERY add_shape result. NEVER shape.shadow.inherit = False.
 """)
 

@@ -3,8 +3,8 @@ import { getAccessToken, supabase } from './supabase';
 
 const GENERATE_URL = import.meta.env.VITE_GENERATE_URL || '';
 const UPLOAD_LOGO_URL = import.meta.env.VITE_UPLOAD_LOGO_URL || '';
-const POLL_INTERVAL_MS = 2000;
-const MAX_POLL_ATTEMPTS = 150; // 5 minutes max
+const POLL_INTERVAL_MS = 5000;
+const MAX_POLL_ATTEMPTS = 200;
 
 export interface GenerateRequest {
   prompt: string;
