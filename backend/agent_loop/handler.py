@@ -95,7 +95,7 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
         "with exactly 'IMG_URL: ' (nothing else on that line)."
     )
     img_user = (
-        f"Find 8 background images for a business presentation about: {p!r}.\n"
+        f"Find 8 background images for a business presentation about: '{prompt}'.\n"
         f"Requirements:\n"
         f"- Images must be DIRECTLY relevant to the topic — no generic offices, consultants, arrows ...\n"
         f"- Prefer dramatic, high-contrast visuals that look good darkened to 60% brightness\n"
