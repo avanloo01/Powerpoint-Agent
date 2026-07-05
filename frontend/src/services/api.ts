@@ -4,7 +4,7 @@ import { getAccessToken, supabase } from './supabase';
 const GENERATE_URL = import.meta.env.VITE_GENERATE_URL || '';
 const UPLOAD_LOGO_URL = import.meta.env.VITE_UPLOAD_LOGO_URL || '';
 const POLL_INTERVAL_MS = 5000;
-const MAX_POLL_ATTEMPTS = 200;
+const MAX_POLL_ATTEMPTS = 400;
 
 export interface GenerateRequest {
   prompt: string;
