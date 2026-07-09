@@ -96,6 +96,8 @@ CONSTRAINTS:
   Inches, Pt, Emu, Cm, RGBColor, PP_ALIGN, ChartData, XL_CHART_TYPE, MSO_SHAPE,
   MSO_ANCHOR, MSO_AUTO_SIZE, io, math, json, BytesIO, Image, ImageEnhance,
   urlrequest, no_shadow, remove_outline, get_image_buf
+- slides_data is injected as a FUNCTION PARAMETER (list of slide dicts). Iterate:
+  `for slide in slides_data:` — NEVER re-define slides_data or embed slide data as Python dict/list literals.
 - Always use enum constants, not integers: MSO_ANCHOR.MIDDLE not 2; PP_ALIGN.CENTER not 1.
 
 CRITICAL RULES (violating these WILL crash):
@@ -110,6 +112,8 @@ CRITICAL RULES (violating these WILL crash):
 
 STYLE GUIDE:
 - COLORS: PRIMARY = RGBColor(...) from prompt for all accents. ACCENT for chart series only.
+    Also capture your primary R,G,B as: R1,G1,B1 = 0xC0,0x00,0x00 (the same values you used for PRIMARY).
+    These are used by the pie-chart shading template to create progressive lighter shades.
 - LAYOUT CONSTANTS (define once at top of each content-slide block):
     CONCLUSION_Y   = sh - Cm(2.4)
     CONCLUSION_H   = Cm(1.2)
@@ -128,7 +132,9 @@ STYLE GUIDE:
        tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT  ← required so .height is accurate
     d) Section label: y = title_tb.top + title_tb.height + Cm(0.2), gray 16pt. NEVER hardcode y.
 - content_slide: slide.background.fill.solid() white (no white rect shape).
-  Section label 9pt gray; title 22pt bold black; both word_wrap=True.
+  FIXED positions (do NOT derive from margin — they must clear BOX_HEADER_Y=Cm(3.05)):
+    Section label: x=margin, y=Cm(0.5), w=sw-2*margin, h=Cm(0.5), 9pt gray, word_wrap=True
+    Title:         x=margin, y=Cm(1.1), w=sw-2*margin, h=Cm(1.8), 22pt bold black, word_wrap=True
 - box_headers: FIXED coordinates — define once at the top of each content-slide block:
     BOX_HEADER_Y = Cm(3.05)
     BOX_HEADER_H = Cm(0.81)
@@ -141,16 +147,18 @@ STYLE GUIDE:
   Icon y-centred with title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
   Fallback if icon key missing from dict: MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
   CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description — the icon field is the only place for visual markers.
-- separators: usable = sw - 2*margin - gap; col_w = usable * width_ratio.
+- separators: usable = sw - 2*margin - gap; col_w = int(usable * width_ratio).  ← MUST use int() — float EMU values corrupt the PPTX XML.
     LIGHT_GRAY = RGBColor(211, 211, 211)
     sep_x = col1_x + col1_w + gap/2 - Pt(0.25)
     line_top = min(col_tops); line_bottom = CONTENT_BOTTOM
     Draw Pt(0.5) × (line_bottom - line_top) LIGHT_GRAY rect at sep_x.
     "line": rect only. No triangle.
-    "causal_line": rect + right-pointing triangle centred on the line:
-      tri_cx = sep_x + Pt(0.25); tri_cy = (line_top + line_bottom) / 2
+    "causal_line": rect + right-pointing triangle whose base sits on the separator line:
+      # After rotation=90 the visual base is at tri_cx-Pt(4); shift tri_cx right so base lands on the line.
+      tri_cx = sep_x + Pt(4.25)  # base at tri_cx-Pt(4) = sep_x+Pt(0.25) ← on the line
+      tri_cy = (line_top + line_bottom) / 2
       tri = add_shape(ISOSCELES_TRIANGLE, tri_cx-Pt(6), tri_cy-Pt(4), Pt(12), Pt(8))
-      tri.rotation = 90  # rotation=90 keeps bounding-box centre at (tri_cx,tri_cy); apex points right
+      tri.rotation = 90  # apex points right; visual width=Pt(8), visual height=Pt(12)
       tri.fill.solid(); tri.fill.fore_color.rgb = LIGHT_GRAY; no_shadow(tri); remove_outline(tri)
 - conclusion_box: if non-null, draw BEFORE sources using MSO_SHAPE.RECTANGLE (NEVER ROUNDED_RECTANGLE):
     box = add_shape(RECTANGLE, margin, CONCLUSION_Y, sw-2*margin, CONCLUSION_H)
@@ -160,19 +168,52 @@ STYLE GUIDE:
 - sources: draw LAST at SOURCES_Y. 8pt gray left-aligned.
   RENDER ORDER: columns → separator → conclusion_box → sources → logo
 - logo: top-right, ~0.6in tall, BytesIO(logo_bytes).
-- charts: ChartData + add_chart. chart.chart_style = 2.
-  Chart type mapping (use EXACTLY these):
-    "bar"         → XL_CHART_TYPE.BAR_CLUSTERED      (horizontal bars)
-    "grouped_bar" → XL_CHART_TYPE.COLUMN_CLUSTERED  (vertical grouped bars)
-    "line"        → XL_CHART_TYPE.LINE
-    "pie"         → XL_CHART_TYPE.PIE
+- charts: Use EXACTLY this pattern — all four types are handled via a dict map with fallback:
+    _CHART_TYPE_MAP = {
+        'bar': XL_CHART_TYPE.BAR_CLUSTERED,
+        'grouped_bar': XL_CHART_TYPE.COLUMN_CLUSTERED,
+        'line': XL_CHART_TYPE.LINE,
+        'pie': XL_CHART_TYPE.PIE,
+    }
+    ct = _CHART_TYPE_MAP.get(ch['chart_type'], XL_CHART_TYPE.COLUMN_CLUSTERED)
+    cd = ChartData()
+    cd.categories = ch['x_labels']
+    for s in ch['series']:
+        cd.add_series(s['name'], s['values'])
     content_y = BOX_HEADER_Y + BOX_HEADER_H + Inches(0.1)
     chart_h = max(CONTENT_BOTTOM - content_y - Inches(0.1), Inches(2.5))
-    # column also has bullets below chart: chart_h = (CONTENT_BOTTOM - content_y) * 0.55
-    add_chart(ct, col_x+Inches(0.08), content_y, col_w-Inches(0.16), chart_h, cd)
-  chart.value_axis.has_major_gridlines = False
-  Bar: chart.value_axis.visible = False; data_labels on (show_value=True).
-  Series colors: PRIMARY (1st series), ACCENT (2nd). Pie: data_labels.show_percentage = True.
+    # if column also has bullets below chart: chart_h = (CONTENT_BOTTOM - content_y) * 0.55
+    cf = slide.shapes.add_chart(ct, col_x+Inches(0.08), content_y, col_w-Inches(0.16), chart_h, cd)
+    chart_obj = cf.chart
+    chart_obj.chart_style = 2
+    if ch['chart_type'] in ('bar', 'grouped_bar'):
+        chart_obj.value_axis.has_major_gridlines = False
+        chart_obj.value_axis.visible = False
+        plot = chart_obj.plots[0]
+        plot.has_data_labels = True
+        plot.data_labels.show_value = True
+        for i, ser in enumerate(chart_obj.series):
+            ser.format.fill.solid()
+            ser.format.fill.fore_color.rgb = PRIMARY if i == 0 else ACCENT
+    elif ch['chart_type'] == 'line':
+        chart_obj.value_axis.has_major_gridlines = False
+        for i, ser in enumerate(chart_obj.series):
+            ser.format.line.color.rgb = PRIMARY if i == 0 else ACCENT
+    elif ch['chart_type'] == 'pie':
+        plot = chart_obj.plots[0]
+        plot.has_data_labels = True
+        plot.data_labels.show_percentage = True
+        # Color slices: progressive lighter shades of PRIMARY (blend toward white).
+        # Use the numeric RGB components from your PRIMARY definition (e.g. R1=0xC0, G1=0x00, B1=0x00).
+        for j, pt in enumerate(chart_obj.series[0].points):
+            t = (j + 1) / (len(chart_obj.series[0].points) + 1)
+            shade = RGBColor(
+                int(R1 + (255 - R1) * t),
+                int(G1 + (255 - G1) * t),
+                int(B1 + (255 - B1) * t),
+            )
+            pt.format.fill.solid()
+            pt.format.fill.fore_color.rgb = shade
   Never call chart.replace_data() — build all data via ChartData at creation time.
 """)
 
@@ -201,9 +242,9 @@ def _build_batch_code(
     )
     icon_note = (
         "An `icons` dict (filename → PNG bytes) is passed as a PARAMETER to your function — "
-        f"include it in your signature: def {fn_name}(prs, logo_bytes=None, icons=None). "
+        f"include it in your signature: def {fn_name}(prs, logo_bytes=None, icons=None, slides_data=None). "
         "Use icons[bullet['icon']] as a BytesIO source for add_picture()."
-        if has_icons else "No icons are provided — your function does NOT need an `icons` parameter. Use MSO_SHAPE.OVAL Pt(10), PRIMARY fill as fallback."
+        if has_icons else "No icons are provided — omit the `icons` parameter. Use MSO_SHAPE.OVAL Pt(10), PRIMARY fill as fallback."
     )
     batch_structure: dict = {"slides": batch_slides}
     structure_json = json.dumps(batch_structure, indent=2)
@@ -212,9 +253,11 @@ def _build_batch_code(
         f"Accent color: {accent}\n"
         f"Logo: {logo_note}\n"
         f"Icons: {icon_note}\n"
-        f"IMPORTANT: Name your function `{fn_name}`. Your function signature must be "
-        f"`def {fn_name}(prs, logo_bytes=None, icons=None):` (omit logo_bytes/icons only if told they're not provided).\n\n"
-        f"Presentation structure:\n{structure_json}"
+        f"IMPORTANT: Name your function `{fn_name}`. Your function signature MUST include `slides_data=None`: "
+        f"`def {fn_name}(prs, logo_bytes=None, icons=None, slides_data=None):` — omit logo_bytes/icons only if told they're not provided, but ALWAYS include slides_data.\n"
+        f"The batch slides are injected as `slides_data` (a Python list). Iterate: `for slide in slides_data:`. "
+        f"DO NOT re-define slides_data or encode any slide data as Python dict/list literals in your code body.\n\n"
+        f"Presentation structure (reference only — iterate slides_data at runtime, do not copy this JSON into code):\n{structure_json}"
     )
     prompt_len = len(_BUILD_SYSTEM) + len(user_msg)
     last_exc = None
@@ -258,12 +301,35 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
     from PIL import Image, ImageEnhance
 
     # ── Patch pptx to accept float coordinates (AI often divides EMU ints) ──
+    # Charts use CT_GraphicalObjectFrame.new_graphicFrame which embeds coords via
+    # f-string (f'cx="{cx}"'), bypassing all type validators. Patch it directly.
+    import pptx.oxml.shapes.graphfrm as _graphfrm
     import pptx.oxml.simpletypes as _simpletypes
+
+    _orig_new_graphicFrame = _graphfrm.CT_GraphicalObjectFrame.new_graphicFrame
+
+    @classmethod
+    def _int_new_graphicFrame(cls, id_: int, name: str, x: int, y: int, cx: int, cy: int):
+        return _orig_new_graphicFrame.__func__(cls, id_, name, int(x), int(y), int(cx), int(cy))
+
+    _graphfrm.CT_GraphicalObjectFrame.new_graphicFrame = _int_new_graphicFrame
+
+    # Also patch BaseIntType.convert_to_xml for any remaining descriptor-based setters
+    _orig_convert_to_xml = _simpletypes.BaseIntType.convert_to_xml
+
+    @classmethod
+    def _lenient_convert_to_xml(cls, value):
+        if isinstance(value, float):
+            value = int(value)
+        return _orig_convert_to_xml.__func__(cls, value)
+
+    _simpletypes.BaseIntType.convert_to_xml = _lenient_convert_to_xml
+
+    # And validate_int so floats don't raise before reaching convert_to_xml
     _orig_validate_int = _simpletypes.BaseSimpleType.validate_int
 
     @staticmethod
     def _lenient_validate_int(value: int | float) -> None:
-        """Validate but auto-convert float → int (safe: EMU rounding is sub-pixel)."""
         if isinstance(value, float):
             value = int(value)
         return _orig_validate_int(value)
@@ -356,6 +422,7 @@ def _get_image_buf_factory(image_buffers: dict[str, bytes]):
 def _execute_batch(
     code: str, prs: object, namespace: dict, logo_bytes: bytes | None, fn_name: str,
     icons: dict[str, bytes] | None = None,
+    slides_data: list | None = None,
 ) -> None:
     """Execute AI-generated batch code, adding slides to the existing prs."""
     code = re.sub(r"```(?:python)?\s*", "", code).strip().rstrip("`").strip()
@@ -370,11 +437,12 @@ def _execute_batch(
         )
 
     kwargs = {"logo_bytes": logo_bytes, "icons": icons or {}}
-    # Only pass image_buffers if the function signature accepts it
     import inspect
     sig = inspect.signature(build_fn)
     if "image_buffers" in sig.parameters:
         kwargs["image_buffers"] = namespace.get("__image_buffers__", {})
+    if "slides_data" in sig.parameters:
+        kwargs["slides_data"] = slides_data or []
     build_fn(prs, **kwargs)
 
 # ─── REFERENCES SLIDE ─────────────────────────────────────────────────────
@@ -604,7 +672,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         last_error = ""
         for attempt in range(3):
             try:
-                _execute_batch(batch_code, prs, namespace, logo_bytes, fn_name, icons)
+                _execute_batch(batch_code, prs, namespace, logo_bytes, fn_name, icons, batch_slides)
                 print(f"[{job_id}] Batch {batch_num}/{total_batches}: executed on attempt {attempt + 1}")
                 batch_ok = True
                 break
