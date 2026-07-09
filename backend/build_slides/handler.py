@@ -129,14 +129,18 @@ STYLE GUIDE:
     d) Section label: y = title_tb.top + title_tb.height + Cm(0.2), gray 16pt. NEVER hardcode y.
 - content_slide: slide.background.fill.solid() white (no white rect shape).
   Section label 9pt gray; title 22pt bold black; both word_wrap=True.
-- box_headers: PRIMARY rect at (col_x+Inches(0.08), col_y, col_w-Inches(0.16), h),
+- box_headers: FIXED coordinates — define once at the top of each content-slide block:
+    BOX_HEADER_Y = Cm(3.05)
+    BOX_HEADER_H = Cm(0.81)
+  PRIMARY rect at (col_x+Inches(0.08), BOX_HEADER_Y, col_w-Inches(0.16), BOX_HEADER_H),
   white bold 12pt, margin_left=Inches(0.1).
 - column subtitle: if a column's "subtitle" field is non-null, add a textbox
-  (col_x+Inches(0.08), header_bottom, col_w-Inches(0.16), Cm(0.4)): 8pt gray italic text.
+  (col_x+Inches(0.08), BOX_HEADER_Y+BOX_HEADER_H, col_w-Inches(0.16), Cm(0.4)): 8pt gray italic text.
   Increment content start y by Cm(0.4) + Inches(0.05) before rendering chart/bullets.
 - bullets: icons[filename] → BytesIO → add_picture Pt(22)×Pt(22). Title bold 10pt, description 8pt.
   Icon y-centred with title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
-  Fallback if missing: MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
+  Fallback if icon key missing from dict: MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
+  CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description — the icon field is the only place for visual markers.
 - separators: usable = sw - 2*margin - gap; col_w = usable * width_ratio.
     LIGHT_GRAY = RGBColor(211, 211, 211)
     sep_x = col1_x + col1_w + gap/2 - Pt(0.25)
@@ -162,7 +166,7 @@ STYLE GUIDE:
     "grouped_bar" → XL_CHART_TYPE.COLUMN_CLUSTERED  (vertical grouped bars)
     "line"        → XL_CHART_TYPE.LINE
     "pie"         → XL_CHART_TYPE.PIE
-    content_y = col_top + box_header_h + Inches(0.1)
+    content_y = BOX_HEADER_Y + BOX_HEADER_H + Inches(0.1)
     chart_h = max(CONTENT_BOTTOM - content_y - Inches(0.1), Inches(2.5))
     # column also has bullets below chart: chart_h = (CONTENT_BOTTOM - content_y) * 0.55
     add_chart(ct, col_x+Inches(0.08), content_y, col_w-Inches(0.16), chart_h, cd)
@@ -373,6 +377,87 @@ def _execute_batch(
         kwargs["image_buffers"] = namespace.get("__image_buffers__", {})
     build_fn(prs, **kwargs)
 
+# ─── REFERENCES SLIDE ─────────────────────────────────────────────────────
+def _add_references_slide(prs: object, structure: dict, settings: dict) -> None:
+    """Append a References slide listing all source URLs from slide notes."""
+    from pptx.util import Inches, Pt, Cm
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+
+    slides_data = structure.get("slides", [])
+    refs: list[tuple[str, str, str]] = []
+    for slide in slides_data:
+        notes = (slide.get("notes") or "").strip()
+        if not notes:
+            continue
+        refs.append((
+            slide.get("slide_title", ""),
+            (slide.get("sources") or "").strip(),
+            notes,
+        ))
+
+    if not refs:
+        return
+
+    sw = prs.slide_width
+    sh = prs.slide_height
+    ref_slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    ref_slide.background.fill.solid()
+    ref_slide.background.fill.fore_color.rgb = RGBColor(255, 255, 255)
+
+    primary_hex = settings.get("primary_color", "#C00000").lstrip("#")
+    primary_rgb = RGBColor(
+        int(primary_hex[0:2], 16),
+        int(primary_hex[2:4], 16),
+        int(primary_hex[4:6], 16),
+    )
+
+    # Title
+    title_tb = ref_slide.shapes.add_textbox(Inches(0.4), Inches(0.25), sw - Inches(0.8), Cm(1.0))
+    p = title_tb.text_frame.paragraphs[0]
+    p.text = "References"
+    p.font.bold = True
+    p.font.size = Pt(22)
+    p.font.color.rgb = primary_rgb
+
+    # Thin separator bar
+    sep = ref_slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.4), Inches(1.0), sw - Inches(0.8), Pt(2))
+    sep.fill.solid()
+    sep.fill.fore_color.rgb = primary_rgb
+    try:
+        sep.shadow.inherit = False
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        sep.line.fill.background()
+    except Exception:  # noqa: BLE001
+        pass
+
+    # References content
+    content_tb = ref_slide.shapes.add_textbox(Inches(0.4), Inches(1.15), sw - Inches(0.8), sh - Inches(1.45))
+    ctf = content_tb.text_frame
+    ctf.word_wrap = True
+
+    first = True
+    for title_str, sources_str, notes_str in refs:
+        if first:
+            p1 = ctf.paragraphs[0]
+            first = False
+        else:
+            p_gap = ctf.add_paragraph()
+            p_gap.font.size = Pt(4)
+            p1 = ctf.add_paragraph()
+
+        p1.text = title_str + (f"  |  {sources_str}" if sources_str else "")
+        p1.font.bold = True
+        p1.font.size = Pt(9)
+        p1.font.color.rgb = RGBColor(40, 40, 40)
+
+        p2 = ctf.add_paragraph()
+        p2.text = notes_str
+        p2.font.size = Pt(8)
+        p2.font.color.rgb = RGBColor(100, 100, 100)
 
 # ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 
@@ -583,7 +668,10 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             Key=f"wip/{job_id}/code_{batch_num}.txt",
             Body=batch_code.encode(),
         )
-
+        # ── Add references slide on final batch ────────────────────────────────────
+        if batch_num >= total_batches:
+            print(f"[{job_id}] Adding references slide...")
+            _add_references_slide(prs, structure, settings)
         # ── Serialize current prs to bytes ─────────────────────────────────
         prs_buf = io.BytesIO()
         prs.save(prs_buf)

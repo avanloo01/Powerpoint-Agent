@@ -54,6 +54,33 @@ def _update_job(job_id: str, **fields: object) -> None:
     )
 
 
+# ─── IMAGE URL FILTER ────────────────────────────────────────────────────────
+def _filter_image_urls(research_md: str, job_id: str) -> str:
+    """Remove IMG_URL lines whose HTTP status is 4xx or that are unreachable."""
+    lines = research_md.split("\n")
+    filtered: list[str] = []
+    removed = 0
+    for line in lines:
+        if not line.startswith("IMG_URL: "):
+            filtered.append(line)
+            continue
+        url = line[9:].strip()
+        try:
+            req = urlrequest.Request(url=url, method="HEAD")
+            with urlrequest.urlopen(req, timeout=5) as resp:
+                if resp.status < 400:
+                    filtered.append(line)
+                else:
+                    print(f"[{job_id}] Filtered image URL (HTTP {resp.status}): {url[:80]}")
+                    removed += 1
+        except Exception:  # noqa: BLE001
+            print(f"[{job_id}] Filtered image URL (unreachable): {url[:80]}")
+            removed += 1
+    if removed:
+        print(f"[{job_id}] Filtered {removed} inaccessible image URL(s)")
+    return "\n".join(filtered)
+
+
 # ─── RESEARCH AGENT ──────────────────────────────────────────────────────────
 
 def _research(prompt: str, client: OpenAI, job_id: str) -> str:
@@ -176,7 +203,7 @@ Rules:
 - CONCLUSION BOXES: Add conclusion_box to content slides as much as possible. Each conclusion box should capture the causal "so what?". Frame it as a decisive, forward-looking statement (1-2 sentences). This creates a causal thread connecting slides throughout the presentation.
 - For sources, write a short readable label (author, org, or report name) in the sources field — NEVER use inline citation brackets like [1][4][6]. Write the actual URL in the notes field.
 - ICONS (exhaustive list): The icon list above is COMPLETE AND EXHAUSTIVE. Every filename ends in .png — NEVER use .svg, .jpg, or any other extension. You MUST pick from this exact list only. Do not invent names ("chart-line-up.png" is valid; "growth.png" and "chart-line-up.svg" are NOT). If unsure, choose the closest match in the list.
-- BULLET TEXT: NEVER use Unicode arrow or symbol characters (↑ ↓ → ← ✓ ✗ ● ◆ etc.) as substitutes for icons. Use the icon field for all iconography. Plain currency signs (¥ $ €) and standard punctuation in descriptions are fine.
+- BULLET ICON REQUIRED: The "icon" field is MANDATORY for every bullet item. An empty or missing icon is invalid. You MUST always select one .png filename from the exhaustive list above. NEVER put Unicode arrow or symbol characters (↑ ↓ → ← ✓ ✗ ● ◆ • etc.) in the title or description fields as visual markers — those fields are for plain text only. Plain currency signs (¥ $ €) and standard punctuation are fine.
 - Use 12–15 slides total; group related slides under the same section_label
 """)
 
@@ -228,6 +255,8 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         print(f"[{job_id}] Stage 1: Starting research...")
         research_md = _research(augmented_prompt, client, job_id)
         print(f"[{job_id}] Stage 1: Research complete ({len(research_md)} chars)")
+        print(f"[{job_id}] Stage 1.5: Filtering inaccessible image URLs...")
+        research_md = _filter_image_urls(research_md, job_id)
         _update_job(job_id, research_md=research_md)
 
         # ── Stage 2: Structure ──────────────────────────────────────────────
