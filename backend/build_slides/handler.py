@@ -635,7 +635,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         icon_names: set[str] = set()
         for slide in batch_slides:
             for col in slide.get("columns", []):
-                for bullet in col.get("bullets", []):
+                for bullet in col.get("bullets") or []:
                     icon_name = bullet.get("icon", "")
                     if icon_name:
                         icon_names.add(icon_name)
