@@ -144,6 +144,7 @@ STYLE GUIDE:
   (col_x+Inches(0.08), BOX_HEADER_Y+BOX_HEADER_H, col_w-Inches(0.16), Cm(0.4)): 8pt gray italic text.
   Increment content start y by Cm(0.4) + Inches(0.05) before rendering chart/bullets.
 - bullets: icons[filename] → BytesIO → add_picture Pt(22)×Pt(22). Title bold 10pt, description 8pt.
+  ALWAYS start with `bullet_top = content_y + Cm(0.2)` — this mandatory top gap prevents bullets from crowding the header box.
   Icon y-centred with title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
   BULLET SPACING: after each bullet, advance bullet_top by title_h + desc_h + gap + Pt(10). The Pt(10) inter-bullet padding is mandatory — never use a flat Cm(1.0) increment that ignores it.
   Fallback if icon key missing from dict: use icons[next(iter(icons))] if icons else MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
@@ -203,7 +204,12 @@ STYLE GUIDE:
     elif ch['chart_type'] == 'pie':
         plot = chart_obj.plots[0]
         plot.has_data_labels = True
+        plot.data_labels.show_category_name = True
         plot.data_labels.show_percentage = True
+        # Add a legend at the bottom so slice categories are visible
+        chart_obj.has_legend = True
+        chart_obj.legend.position = XL_LEGEND_POSITION.BOTTOM
+        chart_obj.legend.include_in_layout = False
         # Color slices: progressive lighter shades of PRIMARY (blend toward white).
         # Use the numeric RGB components from your PRIMARY definition (e.g. R1=0xC0, G1=0x00, B1=0x00).
         for j, pt in enumerate(chart_obj.series[0].points):
@@ -374,6 +380,7 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
         "Cm": pptx.util.Cm,
         "RGBColor": pptx.dml.color.RGBColor,
         "PP_ALIGN": pptx.enum.text.PP_ALIGN,
+        "XL_LEGEND_POSITION": pptx.enum.chart.XL_LEGEND_POSITION,
         "ChartData": pptx.chart.data.ChartData,
         "XL_CHART_TYPE": pptx.enum.chart.XL_CHART_TYPE,
         "MSO_SHAPE": pptx.enum.shapes.MSO_SHAPE,
@@ -419,6 +426,25 @@ def _get_image_buf_factory(image_buffers: dict[str, bytes]):
         return buf
 
     return _get_image_buf
+
+
+def _rollback_slides(prs: object, original_count: int) -> None:
+    """Remove slides added beyond original_count to undo a failed batch execution.
+    This prevents orphan slides (often with grey background) from persisting in the PPTX."""
+    from pptx.oxml.ns import qn
+    sldIdLst = prs.slides._sldIdLst
+    removed = 0
+    while len(sldIdLst) > original_count:
+        sld_id = sldIdLst[-1]
+        r_id = sld_id.get(qn('r:id'))
+        if r_id:
+            try:
+                prs.part.drop_rel(r_id)
+            except Exception:  # noqa: BLE001
+                pass
+        sldIdLst.remove(sld_id)
+        removed += 1
+    return removed
 
 
 class _SafeIconDict(dict):
@@ -684,12 +710,15 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         batch_ok = False
         last_error = ""
         for attempt in range(3):
+            slide_count_before = len(prs.slides._sldIdLst)
             try:
                 _execute_batch(batch_code, prs, namespace, logo_bytes, fn_name, icons, batch_slides)
                 print(f"[{job_id}] Batch {batch_num}/{total_batches}: executed on attempt {attempt + 1}")
                 batch_ok = True
                 break
             except Exception as exc:  # noqa: BLE001
+                rolled_back = _rollback_slides(prs, slide_count_before)
+                print(f"[{job_id}] Rolled back {rolled_back} orphan slide(s) from failed attempt")
                 tb = traceback.format_exc()
                 print(f"[{job_id}] Batch {batch_num}/{total_batches}: attempt {attempt + 1} FAILED")
                 print(f"[{job_id}] Error: {exc}")

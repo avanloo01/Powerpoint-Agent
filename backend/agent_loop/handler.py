@@ -119,7 +119,12 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
         "3. **Notable Examples & Case Studies**: concrete real-world examples with specific data.\n"
         "4. **Key Takeaways**: 3-5 actionable insights.\n"
         "Always include specific numbers, dates, percentages, and units. "
-        "When data is scarce on one dimension, search for proxy or adjacent data that still supports the narrative."
+        "When data is scarce on one dimension, search for proxy or adjacent data that still supports the narrative.\n"
+        "IMPORTANT: At the very end of your response add a '## Sources' section. "
+        "List every source you used, numbered, in this EXACT format (one per line):\n"
+        "[1] https://url.com | Source Name or Title\n"
+        "[2] https://url2.com | Another Source\n"
+        "This section is mandatory and must use this exact format."
     )
     response = client.chat.completions.create(
         model=QWEN_MODEL,
@@ -140,7 +145,7 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
         "with exactly 'IMG_URL: ' (nothing else on that line)."
     )
     img_user = (
-        f"Find 8 background images for a business presentation about: '{prompt}'.\n"
+        f"Find 10 background images for a business presentation about: '{prompt}'.\n"
         f"Requirements:\n"
         f"- Images must be DIRECTLY relevant to the topic — no generic offices, consultants, arrows ...\n"
         f"- Prefer dramatic, high-contrast visuals that look good darkened to 60% brightness\n"
@@ -165,6 +170,8 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
 
     if img_text:
         research_md += "\n\n## Background Image URLs\n\n" + img_text
+        # Filter dead image URLs now so the structure agent never sees them
+        research_md = _filter_image_urls(research_md, job_id)
 
     return research_md
 
@@ -218,6 +225,7 @@ Rules:
 - image_url: look for lines in the research document's "Background Image URLs" section that start with "IMG_URL: ". Use those URLs for title slides and section dividers. You MAY reuse the same URL on multiple slides — it is far better to reuse an image than to set image_url to null. Set image_url to null ONLY when the "Background Image URLs" section is entirely absent from the research document.
 - CHART PRIORITY (critical): Use charts as your DEFAULT content type whenever numerical data exists in the research. At least 40-50% of content slides should contain a chart. Only use bullet_list or text when the data genuinely cannot be charted or you refer to an actual list. Prefer line for trends, pie for composition, bar for rankings, grouped_bar for comparisons.
 - For charts: always include ACTUAL data matching the research findings. Every chart must have at least 3 data points (x_labels) to be meaningful.
+- BULLET LIST PRIORITY: Use content_type 'bullet_list' for any column where content consists of distinct items, actions, or attributes (3+ points). Only use 'text' for continuous multi-paragraph prose that genuinely cannot be structured as bullets. When in doubt, always choose 'bullet_list' over 'text'.
 - CONCLUSION BOXES: Add conclusion_box to content slides as much as possible. Each conclusion box should capture the causal "so what?". Frame it as a decisive, forward-looking statement (1-2 sentences). This creates a causal thread connecting slides throughout the presentation.
 - For sources, write a short readable label (author, org, or report name) in the sources field — NEVER use citation brackets like [1][4][6] in sources or notes. For notes, find the matching entry in the research document's references section (lines starting with [n]) and copy the full URL verbatim (starting with https://). If multiple citations apply, list the URLs separated by " | ". If you cannot find an explicit URL, write the source name only — never write bare [n] markers.
 - ICONS (exhaustive list): The icon list above is COMPLETE AND EXHAUSTIVE. Every filename ends in .png — NEVER use any other extension. You MUST pick from this exact list. Do not invent names ("chart-line-up.png" is valid; "growth.png" and "chart-line-up.svg" are NOT). If unsure, you MUST choose the closest match in the list.
@@ -228,16 +236,18 @@ Rules:
 
 # ─── CITATION HELPERS ───────────────────────────────────────────────────────
 def _extract_citation_map(research_md: str) -> dict[str, str]:
-    """Parse [n] citation references from Qwen research output → {num: url}."""
+    """Parse numbered citations from research output → {num_str: url}.
+    Handles [1] URL, [1]: URL, [^1]: URL, [1] Title | URL, 1. URL, etc."""
     result: dict[str, str] = {}
-    url_pat = re.compile(r'https?://[^\s\)\]\,>]+')
-    ref_pat = re.compile(r'^\[(\d+)\]')
+    url_pat = re.compile(r'https?://[^\s\)\]\,>"<|]+')
     for line in research_md.split("\n"):
-        m = ref_pat.match(line)
+        stripped = line.strip().lstrip('- *>')
+        # Match [n], [^n], [n]:, [n]., n., n:, n) at line start
+        m = re.match(r'^\[?\^?(\d+)\]?[:.)]?\s+', stripped)
         if m:
-            urls = url_pat.findall(line)
+            urls = url_pat.findall(stripped)
             if urls:
-                result[m.group(1)] = urls[-1].rstrip(".,;)>]")
+                result[m.group(1)] = urls[0].rstrip('.,;)>]"\' ')
     return result
 
 
@@ -304,8 +314,6 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         print(f"[{job_id}] Stage 1: Starting research...")
         research_md = _research(augmented_prompt, client, job_id)
         print(f"[{job_id}] Stage 1: Research complete ({len(research_md)} chars)")
-        print(f"[{job_id}] Stage 1.5: Filtering inaccessible image URLs...")
-        research_md = _filter_image_urls(research_md, job_id)
         _update_job(job_id, research_md=research_md)
 
         # ── Stage 2: Structure ──────────────────────────────────────────────
