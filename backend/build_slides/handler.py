@@ -140,10 +140,15 @@ STYLE GUIDE:
     BOX_HEADER_H = Cm(0.81)
   PRIMARY rect at (col_x+Inches(0.08), BOX_HEADER_Y, col_w-Inches(0.16), BOX_HEADER_H),
   white bold 12pt, margin_left=Inches(0.1).
+  CRITICAL: Draw a box_header for EVERY column that has a non-null "box_header" string — this includes chart columns, bullet-list columns, and text columns alike.
 - column subtitle: if a column's "subtitle" field is non-null, add a textbox
   (col_x+Inches(0.08), BOX_HEADER_Y+BOX_HEADER_H, col_w-Inches(0.16), Cm(0.4)): 8pt gray italic text.
   Increment content start y by Cm(0.4) + Inches(0.05) before rendering chart/bullets.
 - bullets: icons[filename] → BytesIO → add_picture Pt(22)×Pt(22). Title bold 10pt, description 8pt.
+  ICON X: icon is placed at (col_x+Inches(0.08), icon_y).
+  TEXT X: the bullet title+desc textbox MUST be offset to the right of the icon:
+    text_x = col_x + Inches(0.08) + Pt(28)   # icon width (Pt(22)) + Pt(6) gap
+    text_w = col_w - Inches(0.16) - Pt(28)   # remaining width after icon
   ALWAYS start with `bullet_top = content_y + Cm(0.2)` — this mandatory top gap prevents bullets from crowding the header box.
   Icon y-centred with title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
   BULLET SPACING: after each bullet, advance bullet_top by title_h + desc_h + gap + Pt(10). The Pt(10) inter-bullet padding is mandatory — never use a flat Cm(1.0) increment that ignores it.
@@ -486,15 +491,44 @@ def _execute_batch(
 
 # ─── REFERENCES SLIDE ─────────────────────────────────────────────────────
 def _add_references_slide(prs: object, structure: dict, settings: dict) -> None:
-    """Append a References slide listing all source URLs from slide notes."""
+    """Append a References slide listing all source URLs from slide notes.
+    Also performs a final citation-resolution pass using a _citation_map if
+    embedded in the structure (set by agent_loop after research)."""
     from pptx.util import Inches, Pt, Cm
     from pptx.dml.color import RGBColor
     from pptx.enum.shapes import MSO_SHAPE
+    import re as _re
 
     slides_data = structure.get("slides", [])
+    citation_map: dict[str, str] = structure.get("_citation_map", {})
+
+    def _final_resolve(text: str) -> str:
+        """Resolve any remaining [n] markers using the embedded citation map."""
+        if not citation_map:
+            return text
+        # Handle [1,2,3] groups
+        text = _re.sub(
+            r'\[(\d+(?:\s*,\s*\d+)*)\]',
+            lambda m: ' | '.join(
+                citation_map.get(n.strip(), f'[{n.strip()}]')
+                for n in m.group(1).split(',')
+            ),
+            text,
+        )
+        # Handle adjacent [1][2]
+        text = _re.sub(
+            r'\[(\d+)\]',
+            lambda m: citation_map.get(m.group(1), m.group(0)),
+            text,
+        )
+        return _re.sub(r'(\s*\|\s*)+', ' | ', text)
+
     refs: list[tuple[str, str, str]] = []
     for slide in slides_data:
         notes = (slide.get("notes") or "").strip()
+        # Final citation-resolution pass: if notes still contain [n] markers,
+        # resolve them now so the references slide shows real URLs.
+        notes = _final_resolve(notes)
         if not notes:
             continue
         refs.append((

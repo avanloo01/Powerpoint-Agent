@@ -222,7 +222,7 @@ Rules:
 - full_width: exactly 1 column, width_ratio (no padding here) = 1.0
 - title_slide: the title of this slide is the presentation title. No other content is needed.
 - section_divider: for the title of the slide, write an interesting question that covers the content of that section; for the section_label, give the name of the section. No other content is needed.
-- image_url: look for lines in the research document's "Background Image URLs" section that start with "IMG_URL: ". Use those URLs for title slides and section dividers. You MAY reuse the same URL on multiple slides — it is far better to reuse an image than to set image_url to null. Set image_url to null ONLY when the "Background Image URLs" section is entirely absent from the research document.
+- image_url: look for lines in the research document's "Background Image URLs" section that start with "IMG_URL: ". Use those URLs for title slides and section dividers. You MUST assign an image_url to EVERY title_slide and EVERY section_divider. Reuse URLs across slides; a reused image is infinitely better than null. Set image_url to null ONLY when the "Background Image URLs" section is entirely absent from the research document.
 - CHART PRIORITY (critical): Use charts as your DEFAULT content type whenever numerical data exists in the research. At least 40-50% of content slides should contain a chart. Only use bullet_list or text when the data genuinely cannot be charted or you refer to an actual list. Prefer line for trends, pie for composition, bar for rankings, grouped_bar for comparisons.
 - For charts: always include ACTUAL data matching the research findings. Every chart must have at least 3 data points (x_labels) to be meaningful.
 - BULLET LIST PRIORITY: Use content_type 'bullet_list' for any column where content consists of distinct items, actions, or attributes (3+ points). Only use 'text' for continuous multi-paragraph prose that genuinely cannot be structured as bullets. When in doubt, always choose 'bullet_list' over 'text'.
@@ -237,12 +237,15 @@ Rules:
 # ─── CITATION HELPERS ───────────────────────────────────────────────────────
 def _extract_citation_map(research_md: str) -> dict[str, str]:
     """Parse numbered citations from research output → {num_str: url}.
-    Handles [1] URL, [1]: URL, [^1]: URL, [1] Title | URL, 1. URL, etc."""
+    Handles [1] URL | Title, [1]: URL, [^1]: URL, [1] Title | URL, 1. URL, etc.
+    Also handles the Qwen web-search citation format: [1] URL  and  [^1]: URL."""
     result: dict[str, str] = {}
-    url_pat = re.compile(r'https?://[^\s\)\]\,>"<|]+')
+    # More permissive URL pattern — stops at whitespace, |, or trailing punctuation but
+    # allows query params, fragments, and common path characters.
+    url_pat = re.compile(r'https?://[^\s\)\]\}>"\|]+')
     for line in research_md.split("\n"):
-        stripped = line.strip().lstrip('- *>')
-        # Match [n], [^n], [n]:, [n]., n., n:, n) at line start
+        stripped = line.strip().lstrip('- *>#')
+        # Match [n], [^n], [n]:, [n]., [n]), n., n:, n) at line start
         m = re.match(r'^\[?\^?(\d+)\]?[:.)]?\s+', stripped)
         if m:
             urls = url_pat.findall(stripped)
@@ -252,18 +255,36 @@ def _extract_citation_map(research_md: str) -> dict[str, str]:
 
 
 def _resolve_citations(structure: dict, citation_map: dict[str, str]) -> None:
-    """Replace [n] citation markers in slide notes/sources with actual URLs (in-place)."""
+    """Replace [n] citation markers in slide notes/sources with actual URLs (in-place).
+    Handles: [1], [1][2][3], [1,2,3], [1-3] patterns."""
     if not citation_map:
         return
 
-    def _sub(text: str) -> str:
-        return re.sub(r'\[(\d+)\]', lambda m: citation_map.get(m.group(1), m.group(0)), text)
+    def _resolve(text: str) -> str:
+        # First handle comma/space-separated groups: [1,2,3] or [1, 2, 3]
+        text = re.sub(
+            r'\[(\d+(?:\s*,\s*\d+)*)\]',
+            lambda m: ' | '.join(
+                citation_map.get(n.strip(), f'[{n.strip()}]')
+                for n in m.group(1).split(',')
+            ),
+            text,
+        )
+        # Then handle adjacent single brackets: [1][2][3]
+        text = re.sub(
+            r'\[(\d+)\]',
+            lambda m: citation_map.get(m.group(1), m.group(0)),
+            text,
+        )
+        # Collapse runs of " | " that may result from adjacent resolved markers
+        text = re.sub(r'(\s*\|\s*)+', ' | ', text)
+        return text
 
     for slide in structure.get("slides", []):
         if slide.get("notes"):
-            slide["notes"] = _sub(slide["notes"])
+            slide["notes"] = _resolve(slide["notes"])
         if slide.get("sources"):
-            slide["sources"] = _sub(slide["sources"])
+            slide["sources"] = _resolve(slide["sources"])
 
 
 def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> dict:
@@ -287,7 +308,10 @@ def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> di
     raw = response.choices[0].message.content or "{}"
     structure = json.loads(raw)
     # Post-process: resolve any [n] citation markers in notes/sources to actual URLs
-    _resolve_citations(structure, _extract_citation_map(research_md))
+    citation_map = _extract_citation_map(research_md)
+    _resolve_citations(structure, citation_map)
+    # Embed citation map so build_slides can do a final resolution pass on references
+    structure["_citation_map"] = citation_map
     return structure
 
 
