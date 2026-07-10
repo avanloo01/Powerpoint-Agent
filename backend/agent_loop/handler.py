@@ -122,8 +122,11 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
         "When data is scarce on one dimension, search for proxy or adjacent data that still supports the narrative.\n"
         "IMPORTANT: At the very end of your response add a '## Sources' section. "
         "List every source you used, numbered, in this EXACT format (one per line):\n"
-        "[1] https://url.com | Source Name or Title\n"
-        "[2] https://url2.com | Another Source\n"
+        "[1] https://full-specific-url.com/path/to/article | Source Name or Title\n"
+        "[2] https://another-full-url.com/report-page | Another Source\n"
+        "CRITICAL: Use the FULL, SPECIFIC URL to the exact page or article you accessed — "
+        "NEVER truncate to just the root domain (e.g., use https://www.example.com/report-2025 "
+        "NOT https://www.example.com)."
         "This section is mandatory and must use this exact format."
     )
     response = client.chat.completions.create(

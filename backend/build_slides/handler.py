@@ -145,15 +145,23 @@ STYLE GUIDE:
   (col_x+Inches(0.08), BOX_HEADER_Y+BOX_HEADER_H, col_w-Inches(0.16), Cm(0.4)): 8pt gray italic text.
   Increment content start y by Cm(0.4) + Inches(0.05) before rendering chart/bullets.
 - bullets: icons[filename] → BytesIO → add_picture Pt(22)×Pt(22). Title bold 10pt, description 8pt.
-  ICON X: icon is placed at (col_x+Inches(0.08), icon_y).
-  TEXT X: the bullet title+desc textbox MUST be offset to the right of the icon:
-    text_x = col_x + Inches(0.08) + Pt(28)   # icon width (Pt(22)) + Pt(6) gap
-    text_w = col_w - Inches(0.16) - Pt(28)   # remaining width after icon
-  ALWAYS start with `bullet_top = content_y + Cm(0.2)` — this mandatory top gap prevents bullets from crowding the header box.
-  Icon y-centred with title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
-  BULLET SPACING: after each bullet, advance bullet_top by title_h + desc_h + gap + Pt(10). The Pt(10) inter-bullet padding is mandatory — never use a flat Cm(1.0) increment that ignores it.
+  LAYOUT CONSTANTS:
+    icon_size = Pt(22)
+    icon_x   = col_x + Inches(0.08)
+    text_x   = icon_x + icon_size + Pt(6)    # Pt(6) gap between icon and text
+    text_w   = col_w - Inches(0.16) - icon_size - Pt(6)
+  STEP-BY-STEP (MUST follow this order — icon_y depends on measured text height):
+    1. bullet_top = content_y + Cm(0.2)
+    2. Create textbox at (text_x, bullet_top, text_w, Cm(1.5)), word_wrap=True
+    3. Add title paragraph (bold 10pt) then description paragraph (8pt) to tf
+    4. tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT   ← needed so .height is accurate
+    5. total_text_h = tf.height   ← measure ONLY after step 4
+    6. icon_y = bullet_top + (total_text_h - icon_size) / 2   ← compute AFTER step 5
+    7. add_picture(icon_buf, icon_x, icon_y, icon_size, icon_size)
+    8. Advance: bullet_top += total_text_h + Pt(10)   ← Pt(10) inter-bullet padding
+  WARNING: Never compute icon_y before step 5 — doing so gives y=0 and stacks icons on the header.
   Icon fallback: if the icons dict is empty, use MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
-  CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description — the icon field is the only place for visual markers.
+  CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description.
 - separators: usable = sw - 2*margin - gap; col_w = int(usable * width_ratio).  ← MUST use int() — float EMU values corrupt the PPTX XML.
     LIGHT_GRAY = RGBColor(211, 211, 211)
     sep_x = col1_x + col1_w + gap/2 - Pt(0.25)
@@ -693,11 +701,19 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
 
         # ── First invocation only: one-time setup ─────────────────────────
         if is_first:
-            # Null out any image URLs that failed so the AI won't reference them
+            # Null out any image URLs that failed so the AI won't reference them.
+            # BUT for title slides & section dividers, fall back to any valid image.
+            valid_urls = [u for u in image_buffers]
             for slide in slides:
                 url = slide.get("image_url")
                 if url and url not in image_buffers:
-                    slide["image_url"] = None
+                    if slide.get("layout") in ("title_slide", "section_divider") and valid_urls:
+                        # Reuse any valid image — a reused image is better than none
+                        import random
+                        slide["image_url"] = random.choice(valid_urls)
+                        print(f"[{job_id}] Fallback image for '{slide.get('slide_title','')[:40]}': {slide['image_url'][:60]}...")
+                    else:
+                        slide["image_url"] = None
 
             # Assign section numbers to divider slides
             section_num = 0
