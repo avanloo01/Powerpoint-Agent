@@ -150,16 +150,15 @@ STYLE GUIDE:
     icon_x   = col_x + Inches(0.08)
     text_x   = icon_x + icon_size + Pt(6)    # Pt(6) gap between icon and text
     text_w   = col_w - Inches(0.16) - icon_size - Pt(6)
-  STEP-BY-STEP (MUST follow this order — icon_y depends on measured text height):
-    1. bullet_top = content_y + Cm(0.2)
-    2. Create textbox at (text_x, bullet_top, text_w, Cm(1.5)), word_wrap=True
-    3. Add title paragraph (bold 10pt) then description paragraph (8pt) to tf
-    4. tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT   ← needed so .height is accurate
-    5. total_text_h = tf.height   ← measure ONLY after step 4
-    6. icon_y = bullet_top + (total_text_h - icon_size) / 2   ← compute AFTER step 5
-    7. add_picture(icon_buf, icon_x, icon_y, icon_size, icon_size)
-    8. Advance: bullet_top += total_text_h + Pt(10)   ← Pt(10) inter-bullet padding
-  WARNING: Never compute icon_y before step 5 — doing so gives y=0 and stacks icons on the header.
+  RENDER ORDER (per bullet):
+    1. bullet_top = content_y + Cm(0.2)   # first bullet only; subsequent bullets use accumulated value
+    2. icon_y = bullet_top + Pt(3)        # fixed offset — icon sits near top of text row
+    3. Create textbox at (text_x, bullet_top, text_w, Cm(1.2)), word_wrap=True
+    4. Add title paragraph (bold 10pt) then description paragraph (8pt) to tf
+    5. tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+    6. add_picture(icon_buf, icon_x, icon_y, icon_size, icon_size)
+    7. Advance: bullet_top += Inches(0.48)   # fixed spacing between bullets (~2 text lines + gap)
+  The icon is Pt(22) tall, roughly matching 2 lines of 10pt text — the Pt(3) offset keeps it aligned.
   Icon fallback: if the icons dict is empty, use MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
   CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description.
 - separators: usable = sw - 2*margin - gap; col_w = int(usable * width_ratio).  ← MUST use int() — float EMU values corrupt the PPTX XML.
