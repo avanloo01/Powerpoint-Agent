@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import textwrap
 from urllib import request as urlrequest
 
@@ -55,8 +56,32 @@ def _update_job(job_id: str, **fields: object) -> None:
 
 
 # ─── IMAGE URL FILTER ────────────────────────────────────────────────────────
+def _check_image_url(url: str, job_id: str) -> bool:
+    """Return True only if the URL is reachable and serves image content.
+    Tries HEAD first (lightweight); falls back to GET for servers that reject HEAD.
+    Also verifies Content-Type starts with 'image/' to reject HTML error pages."""
+    for method in ("HEAD", "GET"):
+        try:
+            req = urlrequest.Request(url=url, method=method)
+            with urlrequest.urlopen(req, timeout=8) as resp:
+                if resp.status >= 400:
+                    print(f"[{job_id}] Filtered image URL (HTTP {resp.status}): {url[:80]}")
+                    return False
+                ct = (resp.headers.get("Content-Type") or "").split(";")[0].strip()
+                if ct and not ct.startswith("image/"):
+                    print(f"[{job_id}] Filtered image URL (non-image Content-Type: {ct}): {url[:80]}")
+                    return False
+                return True
+        except Exception:  # noqa: BLE001
+            if method == "HEAD":
+                continue  # HEAD rejected by server — retry with GET
+            print(f"[{job_id}] Filtered image URL (unreachable): {url[:80]}")
+            return False
+    return False
+
+
 def _filter_image_urls(research_md: str, job_id: str) -> str:
-    """Remove IMG_URL lines whose HTTP status is 4xx or that are unreachable."""
+    """Remove IMG_URL lines that are unreachable, return 4xx, or don't serve image content."""
     lines = research_md.split("\n")
     filtered: list[str] = []
     removed = 0
@@ -65,16 +90,9 @@ def _filter_image_urls(research_md: str, job_id: str) -> str:
             filtered.append(line)
             continue
         url = line[9:].strip()
-        try:
-            req = urlrequest.Request(url=url, method="HEAD")
-            with urlrequest.urlopen(req, timeout=5) as resp:
-                if resp.status < 400:
-                    filtered.append(line)
-                else:
-                    print(f"[{job_id}] Filtered image URL (HTTP {resp.status}): {url[:80]}")
-                    removed += 1
-        except Exception:  # noqa: BLE001
-            print(f"[{job_id}] Filtered image URL (unreachable): {url[:80]}")
+        if _check_image_url(url, job_id):
+            filtered.append(line)
+        else:
             removed += 1
     if removed:
         print(f"[{job_id}] Filtered {removed} inaccessible image URL(s)")
@@ -201,11 +219,41 @@ Rules:
 - CHART PRIORITY (critical): Use charts as your DEFAULT content type whenever numerical data exists in the research. At least 40-50% of content slides should contain a chart. Only use bullet_list or text when the data genuinely cannot be charted or you refer to an actual list. Prefer line for trends, pie for composition, bar for rankings, grouped_bar for comparisons.
 - For charts: always include ACTUAL data matching the research findings. Every chart must have at least 3 data points (x_labels) to be meaningful.
 - CONCLUSION BOXES: Add conclusion_box to content slides as much as possible. Each conclusion box should capture the causal "so what?". Frame it as a decisive, forward-looking statement (1-2 sentences). This creates a causal thread connecting slides throughout the presentation.
-- For sources, write a short readable label (author, org, or report name) in the sources field — NEVER use inline citation brackets like [1][4][6]. Write the actual URL in the notes field.
-- ICONS (exhaustive list): The icon list above is COMPLETE AND EXHAUSTIVE. Every filename ends in .png — NEVER use .svg, .jpg, or any other extension. You MUST pick from this exact list only. Do not invent names ("chart-line-up.png" is valid; "growth.png" and "chart-line-up.svg" are NOT). If unsure, choose the closest match in the list.
+- For sources, write a short readable label (author, org, or report name) in the sources field — NEVER use citation brackets like [1][4][6] in sources or notes. For notes, find the matching entry in the research document's references section (lines starting with [n]) and copy the full URL verbatim (starting with https://). If multiple citations apply, list the URLs separated by " | ". If you cannot find an explicit URL, write the source name only — never write bare [n] markers.
+- ICONS (exhaustive list): The icon list above is COMPLETE AND EXHAUSTIVE. Every filename ends in .png — NEVER use any other extension. You MUST pick from this exact list. Do not invent names ("chart-line-up.png" is valid; "growth.png" and "chart-line-up.svg" are NOT). If unsure, you MUST choose the closest match in the list.
 - BULLET ICON REQUIRED: The "icon" field is MANDATORY for every bullet item. An empty or missing icon is invalid. You MUST always select one .png filename from the exhaustive list above. NEVER put Unicode arrow or symbol characters (↑ ↓ → ← ✓ ✗ ● ◆ • etc.) in the title or description fields as visual markers — those fields are for plain text only. Plain currency signs (¥ $ €) and standard punctuation are fine.
 - Use 12–15 slides total; group related slides under the same section_label
 """)
+
+
+# ─── CITATION HELPERS ───────────────────────────────────────────────────────
+def _extract_citation_map(research_md: str) -> dict[str, str]:
+    """Parse [n] citation references from Qwen research output → {num: url}."""
+    result: dict[str, str] = {}
+    url_pat = re.compile(r'https?://[^\s\)\]\,>]+')
+    ref_pat = re.compile(r'^\[(\d+)\]')
+    for line in research_md.split("\n"):
+        m = ref_pat.match(line)
+        if m:
+            urls = url_pat.findall(line)
+            if urls:
+                result[m.group(1)] = urls[-1].rstrip(".,;)>]")
+    return result
+
+
+def _resolve_citations(structure: dict, citation_map: dict[str, str]) -> None:
+    """Replace [n] citation markers in slide notes/sources with actual URLs (in-place)."""
+    if not citation_map:
+        return
+
+    def _sub(text: str) -> str:
+        return re.sub(r'\[(\d+)\]', lambda m: citation_map.get(m.group(1), m.group(0)), text)
+
+    for slide in structure.get("slides", []):
+        if slide.get("notes"):
+            slide["notes"] = _sub(slide["notes"])
+        if slide.get("sources"):
+            slide["sources"] = _sub(slide["sources"])
 
 
 def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> dict:
@@ -227,9 +275,10 @@ def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> di
         max_tokens=16000,
     )
     raw = response.choices[0].message.content or "{}"
-    return json.loads(raw)
-
-
+    structure = json.loads(raw)
+    # Post-process: resolve any [n] citation markers in notes/sources to actual URLs
+    _resolve_citations(structure, _extract_citation_map(research_md))
+    return structure
 
 
 # ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
