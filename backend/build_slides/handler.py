@@ -147,7 +147,7 @@ STYLE GUIDE:
   ALWAYS start with `bullet_top = content_y + Cm(0.2)` — this mandatory top gap prevents bullets from crowding the header box.
   Icon y-centred with title+desc block: icon_y = bullet_top + (title_h+desc_h+gap - Pt(22))/2.
   BULLET SPACING: after each bullet, advance bullet_top by title_h + desc_h + gap + Pt(10). The Pt(10) inter-bullet padding is mandatory — never use a flat Cm(1.0) increment that ignores it.
-  Fallback if icon key missing from dict: use icons[next(iter(icons))] if icons else MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
+  Icon fallback: if the icons dict is empty, use MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
   CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description — the icon field is the only place for visual markers.
 - separators: usable = sw - 2*margin - gap; col_w = int(usable * width_ratio).  ← MUST use int() — float EMU values corrupt the PPTX XML.
     LIGHT_GRAY = RGBColor(211, 211, 211)
@@ -360,7 +360,7 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
     _SAFE_NAMES = (
         "abs", "all", "any", "bool", "bytes", "bytearray", "dict", "enumerate",
         "filter", "float", "globals", "hasattr", "int",
-        "isinstance", "len", "list", "map", "max", "min", "print", "range",
+        "isinstance", "iter", "len", "list", "map", "max", "min", "next", "print", "range",
         "reversed", "round", "set", "sorted", "str", "sum", "tuple", "zip",
         "Exception", "ValueError", "TypeError", "KeyError",
         "IndexError", "AttributeError", "RuntimeError", "StopIteration",
