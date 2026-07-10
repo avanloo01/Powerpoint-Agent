@@ -131,7 +131,7 @@ STYLE GUIDE:
     c) Title textbox (Cm(6.27), wy+Cm(0.8), sw-Cm(7.27), Cm(2.5)): bold black 32pt, word_wrap=True
        tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT  ← required so .height is accurate
     d) Section label: y = title_tb.top + title_tb.height + Cm(0.2), gray 16pt. NEVER hardcode y.
-- content_slide: slide.background.fill.solid() white (no white rect shape).
+- content_slide: ALWAYS set `slide.background.fill.solid(); slide.background.fill.fore_color.rgb = RGBColor(255,255,255)` as the FIRST two lines of every content-slide block — skipping this leaves a grey default background. No white rect shape.
   FIXED positions (do NOT derive from margin — they must clear BOX_HEADER_Y=Cm(3.05)):
     Section label: x=margin, y=Cm(0.5), w=sw-2*margin, h=Cm(0.5), 9pt gray, word_wrap=True
     Title:         x=margin, y=Cm(1.1), w=sw-2*margin, h=Cm(1.8), 22pt bold black, word_wrap=True
@@ -352,9 +352,10 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
             pass
 
     _SAFE_NAMES = (
-        "abs", "bool", "dict", "enumerate", "float", "globals", "hasattr", "int",
-        "isinstance", "len", "list", "max", "min", "print", "range",
-        "round", "set", "str", "sum", "tuple", "zip",
+        "abs", "all", "any", "bool", "bytes", "bytearray", "dict", "enumerate",
+        "filter", "float", "globals", "hasattr", "int",
+        "isinstance", "len", "list", "map", "max", "min", "print", "range",
+        "reversed", "round", "set", "sorted", "str", "sum", "tuple", "zip",
         "Exception", "ValueError", "TypeError", "KeyError",
         "IndexError", "AttributeError", "RuntimeError", "StopIteration",
     )
