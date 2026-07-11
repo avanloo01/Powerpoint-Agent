@@ -147,23 +147,14 @@ STYLE GUIDE:
   CRITICAL: Draw a box_header for EVERY column that has a non-null "box_header" string — this includes chart columns, bullet-list columns, and text columns alike.
 - column subtitle: if a column's "subtitle" field is non-null, add a textbox
   (col_x+Inches(0.08), BOX_HEADER_Y+BOX_HEADER_H, col_w-Inches(0.16), Cm(0.4)): 8pt gray italic text.
-  Increment content start y by Cm(0.4) + Inches(0.05) before rendering chart/bullets.
-- bullets: icons[filename] → BytesIO → add_picture Pt(22)×Pt(22). Title bold 10pt, description 8pt.
-  LAYOUT CONSTANTS:
-    icon_size = Pt(22)
-    icon_x   = col_x + Inches(0.08)
-    text_x   = icon_x + icon_size + Pt(6)    # Pt(6) gap between icon and text
-    text_w   = col_w - Inches(0.16) - icon_size - Pt(6)
-  RENDER ORDER (per bullet):
-    1. bullet_top = content_y + Cm(0.2)   # first bullet only; subsequent bullets use accumulated value
-    2. icon_y = bullet_top + Pt(3)        # fixed offset — icon sits near top of text row
-    3. Create textbox at (text_x, bullet_top, text_w, Cm(1.2)), word_wrap=True
-    4. Add title paragraph (bold 10pt) then description paragraph (8pt) to tf
-    5. tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
-    6. add_picture(icon_buf, icon_x, icon_y, icon_size, icon_size)
-    7. Advance: bullet_top += Inches(0.48)   # fixed spacing between bullets (~2 text lines + gap)
-  The icon is Pt(22) tall, roughly matching 2 lines of 10pt text — the Pt(3) offset keeps it aligned.
-  Icon fallback: if the icons dict is empty, use MSO_SHAPE.OVAL Pt(10) PRIMARY fill.
+  Then increment content_y: `content_y += Cm(0.4) + Inches(0.05)`.
+  NOTE: content_y must be initialized ONCE per column, BEFORE any content_type rendering:
+    `content_y = BOX_HEADER_Y + BOX_HEADER_H + Inches(0.1)`
+  This applies to ALL columns — chart, bullet_list, text, etc.
+- bullets: call the pre-injected `render_bullets(slide_shape, col_x, col_w, content_y, bullets, icons, PRIMARY)`.
+  It handles icons (Pt(22) pictures or PRIMARY oval fallback), title (bold 10pt), description (8pt),
+  auto-sizing, and spacing (Inches(0.6) per bullet). Returns the new content_y after the last bullet.
+  slide_shape = your pptx Slide object (result of add_slide), NOT the data dict.
   CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description.
 - separators: usable = sw - 2*margin - gap; col_w = int(usable * width_ratio).  ← MUST use int() — float EMU values corrupt the PPTX XML.
     LIGHT_GRAY = RGBColor(211, 211, 211)
@@ -202,6 +193,9 @@ STYLE GUIDE:
     chart_h = max(CONTENT_BOTTOM - content_y - Inches(0.1), Inches(2.5))
     # if column also has bullets below chart: chart_h = (CONTENT_BOTTOM - content_y) * 0.55
     cf = slide.shapes.add_chart(ct, col_x+Inches(0.08), content_y, col_w-Inches(0.16), chart_h, cd)
+    ...
+    content_y += chart_h + Inches(0.1)
+    # if column also has bullets: content_y = render_bullets(<slide_shape>, col_x, col_w, content_y, col["bullets"], icons, PRIMARY)
     chart_obj = cf.chart
     chart_obj.chart_style = 2
     if ch['chart_type'] in ('bar', 'grouped_bar'):
@@ -373,6 +367,63 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
         except (NotImplementedError, AttributeError):
             pass
 
+    def _render_bullets(slide, col_x, col_w, content_y, bullets, icons, primary_color):
+        """Render bullet items in a column. Returns the Y position after the last bullet.
+        Pre-injected into the AI execution namespace so the prompt stays short."""
+        from pptx.util import Inches, Pt, Cm
+        from pptx.dml.color import RGBColor
+        from pptx.enum.shapes import MSO_SHAPE
+        from pptx.enum.text import MSO_AUTO_SIZE
+        from io import BytesIO
+
+        icon_size = Pt(22)
+        icon_x = col_x + Inches(0.08)
+        text_x = icon_x + icon_size + Pt(6)
+        text_w = col_w - Inches(0.16) - icon_size - Pt(6)
+
+        bullet_top = content_y + Cm(0.35)
+
+        for b in bullets:
+            icon_y = bullet_top + Pt(3)
+
+            # Icon: picture if available, else PRIMARY-filled oval
+            icon_fname = b.get("icon", "")
+            if icons and icon_fname in icons:
+                buf = BytesIO(icons[icon_fname])
+                buf.seek(0)
+                slide.shapes.add_picture(buf, icon_x, icon_y, icon_size, icon_size)
+            else:
+                fb = slide.shapes.add_shape(MSO_SHAPE.OVAL, icon_x, icon_y, Pt(10), Pt(10))
+                fb.fill.solid()
+                fb.fill.fore_color.rgb = primary_color
+                _no_shadow(fb)
+                _remove_outline(fb)
+
+            # Textbox with title + optional description
+            txt_tb = slide.shapes.add_textbox(text_x, bullet_top, text_w, Cm(1.6))
+            tf = txt_tb.text_frame
+            tf.word_wrap = True
+
+            p1 = tf.paragraphs[0]
+            run1 = p1.add_run()
+            run1.text = b.get("title", "")
+            run1.font.size = Pt(10)
+            run1.font.bold = True
+            run1.font.color.rgb = RGBColor(0, 0, 0)
+
+            if b.get("description"):
+                p2 = tf.add_paragraph()
+                run2 = p2.add_run()
+                run2.text = b["description"]
+                run2.font.size = Pt(8)
+                run2.font.color.rgb = RGBColor(0, 0, 0)
+
+            tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
+
+            bullet_top += Inches(0.6)
+
+        return bullet_top
+
     _SAFE_NAMES = (
         "abs", "all", "any", "bool", "bytes", "bytearray", "dict", "enumerate",
         "filter", "float", "globals", "hasattr", "int",
@@ -411,6 +462,7 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
         "BytesIO": BytesIO,
         "no_shadow": _no_shadow,
         "remove_outline": _remove_outline,
+        "render_bullets": _render_bullets,
     }
     if image_buffers:
         ns["get_image_buf"] = _get_image_buf_factory(image_buffers)
