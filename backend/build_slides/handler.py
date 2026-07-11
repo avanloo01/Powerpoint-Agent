@@ -109,6 +109,10 @@ CRITICAL RULES (violating these WILL crash):
 - no_shadow(shape): call on every add_shape result. Never shape.shadow.inherit = False.
 - remove_outline(shape): call on every filled shape to strip the default blue border.
   Never shape.line.fill.background() directly — crashes on charts/tables/GraphicFrame.
+- paragraph.add_run() takes ZERO arguments. Always use the two-step pattern:
+    run = paragraph.add_run()
+    run.text = "your text here"
+  NEVER do run = paragraph.add_run("text") or paragraph.add_run(f"text") — this WILL crash.
 
 STYLE GUIDE:
 - COLORS: PRIMARY = RGBColor(...) from prompt for all accents. ACCENT for chart series only.
