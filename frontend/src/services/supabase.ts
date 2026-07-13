@@ -68,6 +68,7 @@ export function hasStoredSession(): boolean {
 
 export interface UserSettings {
   api_key: string | null;
+  api_key_encrypted: string | null;  // base64-encoded bytea; non-null means a key is saved
   primary_color: string | null;
   accent_color: string | null;
   logo_url: string | null;
@@ -95,7 +96,7 @@ export async function getCurrentUserSettings(): Promise<UserSettings | null> {
 
   const { data, error } = await supabase
     .from(SETTINGS_TABLE)
-    .select('api_key, primary_color, accent_color, logo_url')
+    .select('api_key_encrypted, primary_color, accent_color, logo_url')
     .eq('user_id', user.id)
     .maybeSingle();
 

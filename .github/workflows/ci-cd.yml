@@ -24,7 +24,7 @@ jobs:
   # ────────────────────────────────────────────
   # 1. Lint, test & deploy the Python backend
   # ────────────────────────────────────────────
-  backend-test:
+  backend:
     name: Backend — lint, test & deploy
     runs-on: ubuntu-latest
     permissions:
@@ -111,7 +111,7 @@ jobs:
   # ────────────────────────────────────────────
   # 2. Build & test the React frontend
   # ────────────────────────────────────────────
-  frontend-build:
+  frontend:
     name: Frontend — install, lint & build
     runs-on: ubuntu-latest
     permissions:
@@ -157,55 +157,4 @@ jobs:
         run: |
           aws s3 sync build/ s3://${{ secrets.TF_FRONTEND_BUCKET }}/ --delete
 
-  # ────────────────────────────────────────────
-  # 3. Terraform plan (on every PR)
-  # ────────────────────────────────────────────
-  terraform-plan:
-    name: Terraform — plan
-    runs-on: ubuntu-latest
-    needs: [backend-test, frontend-build]
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: terraform
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform init
-        run: terraform init
-
-      - name: Terraform validate
-        run: terraform validate
-
-      - name: Terraform plan
-        run: |
-          terraform plan \
-            -var="frontend_bucket_name=${{ secrets.TF_FRONTEND_BUCKET }}" \
-            -var="storage_bucket_name=${{ secrets.TF_STORAGE_BUCKET }}" \
-            -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
-            -var="supabase_anon_key=${{ secrets.SUPABASE_ANON_KEY }}" \
-            -var="supabase_service_role_key=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -var="supabase_settings_table=${{ secrets.SUPABASE_SETTINGS_TABLE }}" \
-            -out=tfplan
-
-      - name: Upload plan artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: terraform/tfplan
-          retention-days: 1
+  

@@ -47,7 +47,7 @@ const HomePage: React.FC = () => {
       }
 
       const settings = await getCurrentUserSettings();
-      setHasApiKey(Boolean(settings?.api_key));
+      setHasApiKey(Boolean(settings?.api_key_encrypted));
       setPrimaryColor(settings?.primary_color || '#C00000');
     };
 

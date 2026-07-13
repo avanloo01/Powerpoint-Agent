@@ -56,3 +56,9 @@ variable "supabase_settings_table" {
   type        = string
   default     = "user_settings"
 }
+
+variable "encryption_key" {
+  description = "32+ character key used to encrypt/decrypt user API keys via pgcrypto."
+  type        = string
+  sensitive   = true
+}

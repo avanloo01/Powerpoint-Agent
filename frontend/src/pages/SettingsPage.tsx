@@ -22,6 +22,7 @@ const SettingsPage: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(getLoginCookie);
 
   const [apiKey, setApiKey] = useState('');
+  const [hasSavedKey, setHasSavedKey] = useState(false);
   const [primaryColor, setPrimaryColor] = useState('#C00000');
   const [accentColor, setAccentColor] = useState('#A6CAEC');
   const [logoUrl, setLogoUrl] = useState('');
@@ -49,6 +50,7 @@ const SettingsPage: React.FC = () => {
 
       if (!loggedIn) {
         setApiKey('');
+        setHasSavedKey(false);
         setPrimaryColor('#C00000');
         setAccentColor('#A6CAEC');
         setLogoUrl('');
@@ -56,7 +58,10 @@ const SettingsPage: React.FC = () => {
       }
 
       const settings = await getCurrentUserSettings();
-      setApiKey(settings?.api_key || '');
+      // Never pre-fill the API key — it's encrypted at rest and cannot be read back.
+      // Show an indicator if a key has been previously saved.
+      setApiKey('');
+      setHasSavedKey(Boolean(settings?.api_key_encrypted));
       setPrimaryColor(settings?.primary_color || '#C00000');
       setAccentColor(settings?.accent_color || '#A6CAEC');
       setLogoUrl(settings?.logo_url || '');
@@ -160,6 +165,9 @@ const SettingsPage: React.FC = () => {
         accent_color: accentColor,
       });
       setSaveStatus('Settings saved.');
+      if (apiKey.trim()) {
+        setHasSavedKey(true);
+      }
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save settings.');
     }
@@ -420,12 +428,21 @@ const SettingsPage: React.FC = () => {
             <section className="rounded-2xl bg-white p-7 shadow-lg">
               <h2 className="mb-1 text-base font-semibold text-slate-900">Qwen AI API Key</h2>
               <p className="mb-4 text-sm text-slate-500">
-                Your API key is saved to Supabase and retrieved server-side during generation.
+                Your API key is encrypted at rest and retrieved server-side during generation.
+                {hasSavedKey
+                  ? ' A key is currently saved. Enter a new one to replace it.'
+                  : ' You won\'t be able to view it after saving.'}
               </p>
+              {hasSavedKey && (
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  API key saved
+                </div>
+              )}
               <input
                 type="password"
                 className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-slate-400"
-                placeholder="sk-..."
+                placeholder={hasSavedKey ? 'Enter a new key to replace the saved one...' : 'sk-...'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 aria-label="Qwen API Key"

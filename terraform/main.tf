@@ -227,9 +227,11 @@ resource "aws_lambda_function" "upload_logo" {
 
   environment {
     variables = {
-      LOGO_BUCKET       = aws_s3_bucket.storage.id
-      SUPABASE_URL      = var.supabase_url
-      SUPABASE_ANON_KEY = var.supabase_anon_key
+      LOGO_BUCKET              = aws_s3_bucket.storage.id
+      SUPABASE_URL             = var.supabase_url
+      SUPABASE_ANON_KEY        = var.supabase_anon_key
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      ENCRYPTION_KEY           = var.encryption_key
     }
   }
 }
@@ -267,6 +269,7 @@ resource "aws_lambda_function" "agent_loop" {
       QWEN_MODEL                 = var.qwen_model
       SUPABASE_URL               = var.supabase_url
       SUPABASE_SERVICE_ROLE_KEY  = var.supabase_service_role_key
+      ENCRYPTION_KEY             = var.encryption_key
       BUILD_SLIDES_FUNCTION_NAME = aws_lambda_function.build_slides.function_name
     }
   }
@@ -326,11 +329,12 @@ resource "aws_lambda_function" "start_job" {
 
   environment {
     variables = {
-      SUPABASE_URL             = var.supabase_url
-      SUPABASE_ANON_KEY        = var.supabase_anon_key
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_ANON_KEY         = var.supabase_anon_key
       SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
-      SUPABASE_SETTINGS_TABLE  = var.supabase_settings_table
-      AGENT_LOOP_FUNCTION_NAME = aws_lambda_function.agent_loop.function_name
+      SUPABASE_SETTINGS_TABLE   = var.supabase_settings_table
+      ENCRYPTION_KEY            = var.encryption_key
+      AGENT_LOOP_FUNCTION_NAME  = aws_lambda_function.agent_loop.function_name
     }
   }
 }
@@ -368,6 +372,7 @@ resource "aws_lambda_function" "build_slides" {
       QWEN_MODEL                = var.qwen_model
       SUPABASE_URL              = var.supabase_url
       SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      ENCRYPTION_KEY            = var.encryption_key
     }
   }
 }

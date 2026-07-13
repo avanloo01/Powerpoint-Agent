@@ -17,6 +17,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_SETTINGS_TABLE = os.environ.get("SUPABASE_SETTINGS_TABLE", "user_settings")
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "")
 AGENT_LOOP_FUNCTION_NAME = os.environ.get("AGENT_LOOP_FUNCTION_NAME", "")
 
 
@@ -58,12 +59,13 @@ def _get_authenticated_user(token: str) -> dict:
 
 
 def _get_user_settings(user_id: str) -> dict | None:
+    # Query the decryption view which handles pgp_sym_decrypt server-side.
     query = urlparse.urlencode({
         "user_id": f"eq.{user_id}",
         "select": "api_key,primary_color,accent_color,logo_url",
         "limit": "1",
     })
-    url = f"{SUPABASE_URL}/rest/v1/{SUPABASE_SETTINGS_TABLE}?{query}"
+    url = f"{SUPABASE_URL}/rest/v1/user_settings_decrypted?{query}"
     data = _supabase_request(
         "GET",
         url,

@@ -24,6 +24,7 @@ terraform/*.tfstate.backup
 terraform/.terraform.lock.hcl
 terraform/tfplan
 .terraform.tfstate.lock.info
+*.tfvars
 
 
 # IDE / OS

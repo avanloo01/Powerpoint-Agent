@@ -88,7 +88,7 @@ def _get_user_api_key(user_id: str) -> str:
     query = urlparse.urlencode(
         {"user_id": f"eq.{user_id}", "select": "api_key", "limit": "1"}
     )
-    url = f"{SUPABASE_URL}/rest/v1/{SUPABASE_SETTINGS_TABLE}?{query}"
+    url = f"{SUPABASE_URL}/rest/v1/user_settings_decrypted?{query}"
     data = _supabase_get(
         url,
         {
