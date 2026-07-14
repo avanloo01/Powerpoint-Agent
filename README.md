@@ -2,6 +2,10 @@
 
 AI-powered PowerPoint presentation generator for slides in school, consulting, or finance.
 
+## Get Started
+
+To generate your first presentation, you have to create an account and enter your Qwen API key. You can get a Qwen API key on <https://modelstudio.console.alibabacloud.com/ap-southeast-1>
+
 ## Stack
 
 - **Frontend:** React 19 + TypeScript, hosted on S3 behind CloudFront
