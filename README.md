@@ -1,6 +1,6 @@
 # PowerPoint Agent
 
-AI-powered PowerPoint presentation generator — React frontend hosted on S3 + CloudFront, Python Lambda backend using Qwen AI and python-pptx.
+AI-powered PowerPoint presentation generator for slides in school, consulting, or finance.
 
 ## Stack
 
