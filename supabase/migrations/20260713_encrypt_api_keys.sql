@@ -63,7 +63,7 @@ begin
   -- Read the encryption key (only service_role can access this table,
   -- but this function runs as SECURITY DEFINER with owner's privileges)
   select secret_value into enc_key
-  from server_secrets
+  from public.server_secrets
   where key_name = 'api_key_encryption';
 
   if enc_key is null then
@@ -71,7 +71,7 @@ begin
   end if;
 
   -- Encrypt and store in the encrypted column; clear the plaintext column
-  new.api_key_encrypted := pgp_sym_encrypt(new.api_key, enc_key);
+  new.api_key_encrypted := extensions.pgp_sym_encrypt(new.api_key, enc_key);
   new.api_key := '';
 
   return new;
@@ -99,9 +99,9 @@ select
   case
     when api_key_encrypted is not null then
       convert_from(
-        pgp_sym_decrypt(
+        extensions.pgp_sym_decrypt(
           api_key_encrypted,
-          (select secret_value from server_secrets where key_name = 'api_key_encryption')
+          (select secret_value from public.server_secrets where key_name = 'api_key_encryption')
         ),
         'utf8'
       )
@@ -127,9 +127,9 @@ grant select (api_key_encrypted) on public.user_settings to authenticated;
 --   -- Temporarily drop the trigger so we can do a direct UPDATE
 --   DROP TRIGGER IF EXISTS encrypt_api_key_trigger ON public.user_settings;
 --   UPDATE public.user_settings
---     SET api_key_encrypted = pgp_sym_encrypt(
+--     SET api_key_encrypted = extensions.pgp_sym_encrypt(
 --           api_key,
---           (SELECT secret_value FROM server_secrets WHERE key_name = 'api_key_encryption')
+--           (SELECT secret_value FROM public.server_secrets WHERE key_name = 'api_key_encryption')
 --         ),
 --         api_key = ''
 --     WHERE api_key IS NOT NULL AND api_key != '';
