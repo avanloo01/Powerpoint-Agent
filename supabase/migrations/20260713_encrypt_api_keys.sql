@@ -54,34 +54,44 @@ as $$
 declare
   enc_key text;
 begin
-  -- If no plaintext key is being set, leave the encrypted column untouched
-  if new.api_key is null or new.api_key = '' then
-    -- If the encrypted column already has a value, keep it; the user didn't change the key
+  -- If a new plaintext key is being provided, encrypt it
+  if new.api_key is not null and new.api_key != '' then
+    select secret_value into enc_key
+    from public.server_secrets
+    where key_name = 'api_key_encryption';
+
+    if enc_key is null then
+      raise exception 'Encryption key not found in server_secrets. Run the deployment step to insert it.';
+    end if;
+
+    new.api_key_encrypted := extensions.pgp_sym_encrypt(new.api_key, enc_key);
+
+    -- On INSERT, do NOT clear api_key yet — if this becomes an ON CONFLICT
+    -- UPDATE, the UPDATE trigger needs to see the original value to know
+    -- a key was provided. The UPDATE trigger (fired next) will clear it.
+    if TG_OP = 'UPDATE' then
+      new.api_key := '';
+    end if;
+
     return new;
   end if;
 
-  -- Read the encryption key (only service_role can access this table,
-  -- but this function runs as SECURITY DEFINER with owner's privileges)
-  select secret_value into enc_key
-  from public.server_secrets
-  where key_name = 'api_key_encryption';
-
-  if enc_key is null then
-    raise exception 'Encryption key not found in server_secrets. Run the deployment step to insert it.';
+  -- No new key provided — on UPDATE, preserve the existing encrypted key
+  if TG_OP = 'UPDATE' then
+    new.api_key_encrypted := old.api_key_encrypted;
+    new.api_key := '';
   end if;
-
-  -- Encrypt and store in the encrypted column; clear the plaintext column
-  new.api_key_encrypted := extensions.pgp_sym_encrypt(new.api_key, enc_key);
-  new.api_key := '';
 
   return new;
 end;
 $$;
 
--- 5. Trigger: fire BEFORE insert or update of api_key -------------------------
+-- 5. Trigger: fire BEFORE insert or update on the whole row -------------------
+-- (NOT restricted to "OF api_key", so the trigger always runs and can
+--  preserve api_key_encrypted even when api_key is not in the SET clause)
 drop trigger if exists encrypt_api_key_trigger on public.user_settings;
 create trigger encrypt_api_key_trigger
-  before insert or update of api_key on public.user_settings
+  before insert or update on public.user_settings
   for each row
   execute function public.encrypt_user_api_key();
 
