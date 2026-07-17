@@ -115,31 +115,32 @@ def _research(prompt: str, client: OpenAI, job_id: str) -> str:
         "Each table must have clear column headers and multiple rows of comparable data. "
         "Look for: time-series trends, market-share breakdowns, regional comparisons, "
         "financial metrics, survey results, rankings, before/after comparisons. "
-        "Aim for at least 4-6 distinct data tables covering different dimensions of the topic.\n"
+        "Aim for at least 4-6 distinct data tables covering different dimensions of the topic. "
+        "Look hard for sources that specifically include this data. If your sources do not cover "
+        "your topic exactly, mention that they are used as a proxy, but this should only be a "
+        "last resort. ALWAYS cite your sources in this section too (e.g., [2][8]).\n"
         "2. **Key Facts & Statistics**: bullet-point summary of the most important numbers.\n"
         "3. **Notable Examples & Case Studies**: concrete real-world examples with specific data.\n"
         "4. **Key Takeaways**: 3-5 actionable insights.\n"
+        "5. **Sources**: list all sources used, with full URLs.\n"
         "Always include specific numbers, dates, percentages, and units. "
-        "When data is scarce on one dimension, search for proxy or adjacent data that still supports the narrative.\n"
-        "IMPORTANT: At the very end of your response add a '## Sources' section. "
-        "List every source you used, numbered, in this EXACT format (one per line):\n"
-        "[1] https://full-specific-url.com/path/to/article | Source Name or Title\n"
-        "[2] https://another-full-url.com/report-page | Another Source\n"
-        "CRITICAL: Use the FULL, SPECIFIC URL to the exact page or article you accessed — "
-        "NEVER truncate to just the root domain (e.g., use https://www.example.com/report-2025 "
-        "NOT https://www.example.com)."
-        "This section is mandatory and must use this exact format."
+        "When data is scarce on one dimension, search for close proxy or adjacent data "
+        "that still supports the narrative (e.g., focusing on the regional industry or "
+        "market one step up).\n\n"
+        "List every source you used, numbered, in this EXACT format (one per line):\n\n"
+        "[1] https://full-specific-url.com/path/to/article | Source Name or Title (in English)\n"
+        "[2] https://another-full-url.com/report-page | Another Source Title (in English)\n\n"
+        "CRITICAL: When including a URL, you must ensure it works. NEVER include URLs "
+        "that do not cover the cited information, or URLs that lead to a 404."
     )
-    response = client.chat.completions.create(
+    response = client.responses.create(
         model=QWEN_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": f"Research this topic for a business presentation:\n\n{prompt}"},
-        ],
-        extra_body={"enable_search": True,
-                    "search_options":{"forced_search": True, "enable_source": True, "enable_citation": True}},
+        input=f"Research this topic for a business presentation:\n\n{prompt}",
+        instructions=system,
+        tools=[{"type": "web_search"}],
+        extra_body={"enable_thinking": True},
     )
-    research_md = response.choices[0].message.content or ""
+    research_md = response.output_text or ""
 
     # ── Image search for title / section-divider backgrounds ───────────────
     img_system = (
