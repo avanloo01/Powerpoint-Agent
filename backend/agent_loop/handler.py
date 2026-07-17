@@ -16,8 +16,8 @@ from openai import OpenAI
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 S3_OUTPUT_BUCKET = os.environ.get("OUTPUT_BUCKET", "")
-QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen3.6-plus")
+QWEN_BASE_URL = "https://ws-2mo30drlt9wzxl3g.cn-hongkong.maas.aliyuncs.com/compatible-mode/v1"
+QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen3.7-plus")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 BUILD_SLIDES_FUNCTION_NAME = os.environ.get("BUILD_SLIDES_FUNCTION_NAME", "")

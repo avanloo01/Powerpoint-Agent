@@ -31,7 +31,7 @@ variable "storage_bucket_name" {
 variable "qwen_model" {
   description = "Qwen model identifier to use for generation."
   type        = string
-  default     = "qwen3.6-plus"
+  default     = "qwen3.7-plus"
 }
 
 variable "supabase_url" {

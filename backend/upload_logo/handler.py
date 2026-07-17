@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 S3_LOGO_BUCKET = os.environ.get("LOGO_BUCKET", "")
-QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+QWEN_BASE_URL = "https://ws-2mo30drlt9wzxl3g.cn-hongkong.maas.aliyuncs.com/compatible-mode/v1"
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
