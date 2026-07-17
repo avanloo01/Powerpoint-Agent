@@ -4,6 +4,7 @@ Invoked asynchronously by start_job. Updates a Supabase `jobs` row at each stage
 """
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -290,6 +291,107 @@ def _resolve_citations(structure: dict, citation_map: dict[str, str]) -> None:
             slide["sources"] = _resolve(slide["sources"])
 
 
+# ─── ICON VALIDATION ──────────────────────────────────────────────────────────
+# Extract the valid icon list from _STRUCTURE_SCHEMA at import time
+_VALID_ICONS: set[str] = set()
+_icon_match = re.search(
+    r'"icon": "([^"]+(?:\\.png(?:\s*\|\s*[^"]+\\.png)*))"',
+    _STRUCTURE_SCHEMA,
+)
+if _icon_match:
+    _VALID_ICONS = {name.strip() for name in _icon_match.group(1).split("|")}
+
+
+def _closest_icon(name: str, cutoff: float = 0.6) -> str | None:
+    """Return the closest valid icon name via fuzzy matching, or None if no good match."""
+    if not name.endswith(".png"):
+        name = name.rsplit(".", 1)[0] + ".png" if "." in name else name + ".png"
+    match = difflib.get_close_matches(name, _VALID_ICONS, n=1, cutoff=cutoff)
+    return match[0] if match else None
+
+
+def _validate_and_fix_icons(structure: dict, job_id: str) -> int:
+    """Walk the structure and fix any invalid icon names. Returns count of fixes."""
+    fixes = 0
+    for slide in structure.get("slides", []):
+        for col in slide.get("columns", []):
+            for bullet in col.get("bullets") or []:
+                icon = bullet.get("icon", "")
+                if not icon:
+                    continue
+                # Step 1: if _VALID_ICONS is populated and icon is valid, skip
+                if _VALID_ICONS and icon in _VALID_ICONS:
+                    continue
+
+                # Step 2: try fuzzy matching against the known valid set
+                fallback = _smart_fallback_icon(icon, bullet)
+                if fallback:
+                    print(f"[{job_id}] Icon fix (fallback): '{icon}' → '{fallback}'")
+                    bullet["icon"] = fallback
+                    fixes += 1
+                else:
+                    fixed = _closest_icon(icon) if _VALID_ICONS else None
+                    print(f"[{job_id}] Icon fix (fuzzy): '{icon}' → '{fixed}'")
+                    bullet["icon"] = fixed
+                    fixes += 1                    
+                    
+    if fixes:
+        print(f"[{job_id}] Fixed {fixes} invalid icon(s)")
+    return fixes   
+
+def _smart_fallback_icon(name: str, bullet: dict) -> str:
+    """Choose a safe fallback icon when fuzzy matching fails entirely."""
+    text = (bullet.get("title", "") + " " + bullet.get("description", "") + " " + name).lower()
+    keyword_map = {
+        "money": "currency-dollar.png", "finance": "currency-dollar.png",
+        "revenue": "currency-dollar.png", "cost": "currency-dollar.png",
+        "folder": "folder-simple.png", "profit": "chart-line-up.png", "growth": "chart-line-up.png", "trend": "chart-line-up.png", "increase": "chart-line-up.png",
+        "decrease": "chart-line-down.png", "decline": "chart-line-down.png",
+        "market": "chart-bar.png", "share": "chart-pie.png",
+        "percent": "chart-pie.png", "percentage": "chart-pie.png", "lightbulb-on.png": "lightbulb.png", "megaphone.png": "megaphone-simple.png",
+        "data": "chart-bar.png", "statistic": "chart-bar.png",
+        "ai": "brain.png", "ml": "brain.png", "intelligence": "brain.png",
+        "tech": "cpu.png", "technology": "cpu.png", "digital": "cpu.png",
+        "drug": "pill.png", "pharma": "pill.png", "medicine": "pill.png",
+        "health": "heartbeat.png", "medical": "heartbeat.png",
+        "hospital": "hospital.png", "clinic": "hospital.png",
+        "patient": "person.png", "consumer": "person.png",
+        "customer": "person.png", "people": "users-three.png",
+        "supply": "package.png", "chain": "link.png",
+        "logistic": "truck.png", "delivery": "truck.png",
+        "efficiency": "gear-six.png", "operation": "gear-six.png",
+        "strategy": "strategy.png", "plan": "strategy.png",
+        "regulation": "gavel.png", "compliance": "gavel.png",
+        "global": "globe.png", "world": "globe.png",
+        "europe": "globe-hemisphere-east.png", "belgium": "globe-hemisphere-east.png",
+        "risk": "shield-warning.png", "warning": "shield-warning.png",
+        "check": "shield-check.png", "quality": "shield-check.png",
+        "innovation": "lightbulb.png", "idea": "lightbulb.png",
+        "research": "microscope.png", "science": "flask.png",
+        "environment": "tree.png", "green": "leaf.png",
+        "time": "clock.png", "schedule": "calendar-blank.png",
+        "team": "users-three.png", "collaboration": "users-three.png",
+        "communication": "chat-text.png", "message": "chat-text.png",
+        "shopping": "shopping-cart-simple.png", "retail": "storefront.png",
+        "store": "storefront.png", "shop": "storefront.png",
+        "sale": "tag.png", "price": "tag.png",
+        "target": "crosshair-simple.png", "goal": "target.png",
+        "star": "star.png", "favorite": "star.png",
+        "lock": "lock-simple.png", "security": "lock-simple.png",
+        "network": "share-network.png", "connect": "share-network.png",
+        "building": "buildings.png", "industry": "factory.png",
+        "scale": "scales.png", "weigh": "scales.png", "balance": "scales.png",
+        "circle": "shield-check.png", "check-circle": "shield-check.png",
+        "certified": "certificate.png", "certification": "certificate.png",
+        "train": "graduation-cap.png", "education": "graduation-cap.png",
+        "learn": "graduation-cap.png", "skill": "graduation-cap.png",
+    }
+    for keyword, icon in keyword_map.items():
+        if keyword in text:
+            return icon
+    return None
+
+
 def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> dict:
     """Stage 2 – Design the presentation structure as a validated JSON blueprint."""
     _update_job(job_id, status="structuring", stage_message="Building presentation structure\u2026")
@@ -310,6 +412,8 @@ def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> di
     )
     raw = response.choices[0].message.content or "{}"
     structure = json.loads(raw)
+    # Post-process: validate and fix any hallucinated icon names
+    _validate_and_fix_icons(structure, job_id)
     # Post-process: resolve any [n] citation markers in notes/sources to actual URLs
     citation_map = _extract_citation_map(research_md)
     _resolve_citations(structure, citation_map)
