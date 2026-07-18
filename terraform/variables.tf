@@ -62,3 +62,15 @@ variable "encryption_key" {
   type        = string
   sensitive   = true
 }
+
+variable "resend_api_key" {
+  description = "Resend API key for sending completion emails."
+  type        = string
+  sensitive   = true
+}
+
+variable "resend_from_email" {
+  description = "Verified sender email address for Resend (e.g. noreply@yourdomain.com)."
+  type        = string
+  default     = "noreply@lemaiyanlabs.org"
+}

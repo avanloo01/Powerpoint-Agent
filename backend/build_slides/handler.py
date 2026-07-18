@@ -26,6 +26,8 @@ QWEN_BASE_URL = "https://ws-2mo30drlt9wzxl3g.cn-hongkong.maas.aliyuncs.com/compa
 QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen3.7-plus")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "noreply@lemaiyanlabs.org")
 
 # ─── SUPABASE HELPERS ─────────────────────────────────────────────────────────
 
@@ -58,6 +60,76 @@ def _update_job(job_id: str, **fields: object) -> None:
         },
         fields,  # type: ignore[arg-type]
     )
+
+
+def _get_user_email(job_id: str) -> str | None:
+    """Look up the user's email by joining jobs → user_settings."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return None
+    # Step 1: get user_id from the jobs table
+    job_url = f"{SUPABASE_URL}/rest/v1/jobs?select=user_id&id=eq.{job_id}"
+    job_data = _supabase_request("GET", job_url, {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+    })
+    if not isinstance(job_data, list) or not job_data:
+        return None
+    user_id = (job_data[0] or {}).get("user_id")
+    if not user_id:
+        return None
+    # Step 2: get email from user_settings
+    settings_url = f"{SUPABASE_URL}/rest/v1/user_settings?select=email&user_id=eq.{user_id}&limit=1"
+    settings_data = _supabase_request("GET", settings_url, {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+    })
+    if isinstance(settings_data, list) and settings_data:
+        return (settings_data[0] or {}).get("email")
+    return None
+
+
+def _send_completion_email(
+    job_id: str,
+    presentation_title: str,
+    download_url: str,
+) -> None:
+    """Send an email via the Resend API with the presentation download link."""
+    if not RESEND_API_KEY:
+        print(f"[{job_id}] Skipping email: RESEND_API_KEY not configured")
+        return
+
+    email = _get_user_email(job_id)
+    if not email:
+        print(f"[{job_id}] Skipping email: no email found for user")
+        return
+
+    payload = json.dumps({
+        "from": f"PowerPoint Agent <{RESEND_FROM_EMAIL}>",
+        "to": [email],
+        "subject": f"Your presentation is ready: {presentation_title}",
+        "html": (
+            f"<p>Your presentation <strong>{presentation_title}</strong> is ready!</p>"
+            f"<p><a href=\"{download_url}\">Click here to download your PPTX</a></p>"
+            f"<p style=\"color:#888;font-size:12px;\">This link expires in 1 hour.</p>"
+        ),
+    }).encode("utf-8")
+
+    try:
+        req = urlrequest.Request(
+            url="https://api.resend.com/emails",
+            method="POST",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+        )
+        with urlrequest.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8")
+            print(f"[{job_id}] Email sent to {email} — Resend response: {body[:200]}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[{job_id}] Failed to send email to {email}: {exc}")
+        # Don't raise — email failure should not break the job
 
 
 # ─── ICON RENDERING (Pillow-only, no cairo needed) ────────────────────────────
@@ -935,7 +1007,7 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
             download_url = s3.generate_presigned_url(
                 "get_object",
                 Params={"Bucket": S3_OUTPUT_BUCKET, "Key": key},
-                ExpiresIn=3600,
+                ExpiresIn=259200,
             )
             _update_job(
                 job_id,
@@ -944,6 +1016,10 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                 download_url=download_url,
             )
             print(f"[{job_id}] DONE. Download: {download_url}")
+
+            # ── Send completion email ──────────────────────────────────
+            title = structure.get("presentation_title", "Your Presentation")
+            _send_completion_email(job_id, title, download_url)
 
             # Clean up WIP files
             for i in range(1, total_batches + 1):

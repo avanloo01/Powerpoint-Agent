@@ -373,6 +373,8 @@ resource "aws_lambda_function" "build_slides" {
       SUPABASE_URL              = var.supabase_url
       SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
       ENCRYPTION_KEY            = var.encryption_key
+      RESEND_API_KEY            = var.resend_api_key
+      RESEND_FROM_EMAIL         = var.resend_from_email
     }
   }
 }
