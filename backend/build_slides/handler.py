@@ -143,13 +143,13 @@ STYLE GUIDE:
   white bold 12pt, margin_left=Inches(0.1).
   CRITICAL: Draw a box_header for EVERY column that has a non-null "box_header" string — this includes chart columns, bullet-list columns, and text columns alike.
 - column subtitle: if a column's "subtitle" field is non-null, add a textbox
-  (col_x+Inches(0.08), BOX_HEADER_Y+BOX_HEADER_H, col_w-Inches(0.16), Cm(0.4)): 8pt gray italic text.
+  (col_x+Inches(0.08), BOX_HEADER_Y+BOX_HEADER_H, col_w-Inches(0.16), Cm(0.4)): 11pt RGBColor(0x7F,0x7F,0x7F) italic text.
   Then increment content_y: `content_y += Cm(0.4) + Inches(0.05)`.
   NOTE: content_y must be initialized ONCE per column, BEFORE any content_type rendering:
     `content_y = BOX_HEADER_Y + BOX_HEADER_H + Inches(0.1)`
   This applies to ALL columns — chart, bullet_list, text, etc.
 - bullets: call the pre-injected `render_bullets(slide_shape, col_x, col_w, content_y, bullets, icons, PRIMARY)`.
-  It handles icons (Pt(22) pictures or PRIMARY oval fallback), title (bold 10pt), description (8pt),
+  It handles icons (Pt(22) pictures or PRIMARY oval fallback), title (bold 10pt), description (10pt),
   auto-sizing, and spacing (Inches(0.6) per bullet). Returns the new content_y after the last bullet.
   slide_shape = your pptx Slide object (result of add_slide), NOT the data dict.
   CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description.
@@ -170,7 +170,7 @@ STYLE GUIDE:
     box = add_shape(RECTANGLE, margin, CONCLUSION_Y, sw-2*margin, CONCLUSION_H)
     box.fill.background(); no_shadow(box)  ← do NOT remove_outline — border is intentional
     box.line.color.rgb = PRIMARY; box.line.width = Pt(1.0)
-    tf: word_wrap=True, MIDDLE anchor, 0.15in margins, 9pt black PP_ALIGN.CENTER text
+    tf: word_wrap=True, MIDDLE anchor, 0.15in margins, 12pt black PP_ALIGN.CENTER text
 - sources: draw LAST at SOURCES_Y. 8pt gray left-aligned.
   RENDER ORDER: columns → separator → conclusion_box → sources → logo
 - logo: top-right, ~0.6in tall, BytesIO(logo_bytes).
