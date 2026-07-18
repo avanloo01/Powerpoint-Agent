@@ -300,6 +300,7 @@ resource "aws_iam_role_policy" "lambda_invoke_agent_loop" {
         Resource = [
           aws_lambda_function.agent_loop.arn,
           aws_lambda_function.build_slides.arn,
+          aws_lambda_function.assemble_slides.arn,
         ]
       }
     ]
@@ -368,13 +369,12 @@ resource "aws_lambda_function" "build_slides" {
 
   environment {
     variables = {
-      OUTPUT_BUCKET             = aws_s3_bucket.storage.id
-      QWEN_MODEL                = var.qwen_model
-      SUPABASE_URL              = var.supabase_url
-      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
-      ENCRYPTION_KEY            = var.encryption_key
-      RESEND_API_KEY            = var.resend_api_key
-      RESEND_FROM_EMAIL         = var.resend_from_email
+      OUTPUT_BUCKET                 = aws_s3_bucket.storage.id
+      QWEN_MODEL                    = var.qwen_model
+      SUPABASE_URL                  = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY     = var.supabase_service_role_key
+      ENCRYPTION_KEY                = var.encryption_key
+      ASSEMBLE_SLIDES_FUNCTION_NAME = aws_lambda_function.assemble_slides.function_name
     }
   }
 }
@@ -388,6 +388,50 @@ resource "aws_cloudwatch_log_group" "build_slides" {
 # Disable async retries for build_slides too
 resource "aws_lambda_function_event_invoke_config" "build_slides" {
   function_name          = aws_lambda_function.build_slides.function_name
+  maximum_retry_attempts = 0
+}
+
+# ─────────────────────────────────────────────
+# Lambda — assemble_slides
+# ─────────────────────────────────────────────
+
+data "archive_file" "assemble_slides" {
+  type        = "zip"
+  source_dir  = "${path.module}/../backend/assemble_slides"
+  output_path = "${path.module}/.terraform/lambda_zips/assemble_slides.zip"
+}
+
+resource "aws_lambda_function" "assemble_slides" {
+  function_name    = "${var.project_name}-assemble-slides"
+  filename         = data.archive_file.assemble_slides.output_path
+  source_code_hash = data.archive_file.assemble_slides.output_base64sha256
+  role             = aws_iam_role.lambda_exec.arn
+  handler          = "handler.handler"
+  runtime          = "python3.12"
+  timeout          = 900
+  memory_size      = 512
+  tags             = local.common_tags
+
+  environment {
+    variables = {
+      OUTPUT_BUCKET             = aws_s3_bucket.storage.id
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      ENCRYPTION_KEY            = var.encryption_key
+      RESEND_API_KEY            = var.resend_api_key
+      RESEND_FROM_EMAIL         = var.resend_from_email
+    }
+  }
+}
+
+resource "aws_cloudwatch_log_group" "assemble_slides" {
+  name              = "/aws/lambda/${aws_lambda_function.assemble_slides.function_name}"
+  retention_in_days = 14
+  tags              = local.common_tags
+}
+
+resource "aws_lambda_function_event_invoke_config" "assemble_slides" {
+  function_name          = aws_lambda_function.assemble_slides.function_name
   maximum_retry_attempts = 0
 }
 
