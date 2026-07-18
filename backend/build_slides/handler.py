@@ -112,9 +112,9 @@ CRITICAL RULES (violating these WILL crash):
   NEVER do run = paragraph.add_run("text") or paragraph.add_run(f"text") — this WILL crash.
 
 STYLE GUIDE:
-- COLORS: PRIMARY = RGBColor(...) from prompt for all accents. ACCENT for chart series only.
+- COLORS: PRIMARY = RGBColor(...) from prompt for all accents. ACCENT for chart series.
     Also capture your primary R,G,B as: R1,G1,B1 = 0xC0,0x00,0x00 (the same values you used for PRIMARY).
-    These are used by the pie-chart shading template to create progressive lighter shades.
+    TERTIARY = RGBColor(int(R1+(255-R1)*0.4), int(G1+(255-G1)*0.4), int(B1+(255-B1)*0.4)) — a lighter shade of PRIMARY for 3rd+ chart series.
 - LAYOUT CONSTANTS (define once at top of each content-slide block):
     CONCLUSION_Y   = sh - Cm(2.4)
     CONCLUSION_H   = Cm(1.2)
@@ -203,11 +203,11 @@ STYLE GUIDE:
         plot.data_labels.show_value = True
         for i, ser in enumerate(chart_obj.series):
             ser.format.fill.solid()
-            ser.format.fill.fore_color.rgb = PRIMARY if i == 0 else ACCENT
+            ser.format.fill.fore_color.rgb = PRIMARY if i == 0 else (ACCENT if i == 1 else TERTIARY)
     elif ch['chart_type'] == 'line':
         chart_obj.value_axis.has_major_gridlines = False
         for i, ser in enumerate(chart_obj.series):
-            ser.format.line.color.rgb = PRIMARY if i == 0 else ACCENT
+            ser.format.line.color.rgb = PRIMARY if i == 0 else (ACCENT if i == 1 else TERTIARY)
     elif ch['chart_type'] == 'pie':
         plot = chart_obj.plots[0]
         plot.has_data_labels = True
