@@ -12,7 +12,6 @@ import json
 import math
 import os
 import re
-import textwrap
 from urllib import request as urlrequest
 
 import boto3
@@ -565,9 +564,6 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
                 except Exception:  # noqa: BLE001
                     print(f"[{job_id}] Failed to download icon {name}, skipping")
             print(f"[{job_id}] Downloaded {len(icons)}/{len(icon_names)} icons")
-
-        has_logo = logo_bytes is not None
-        has_icons = len(icons) > 0
 
         # ── Create Presentation & execute all batches sequentially ─────────
         prs = _Prs()

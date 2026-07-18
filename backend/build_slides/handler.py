@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import io
 import json
-import math
 import os
-import re
 import textwrap
 import time
 from urllib import request as urlrequest
