@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import difflib
 import json
+import math
 import os
+import random
 import re
 import textwrap
 from urllib import request as urlrequest
@@ -423,8 +425,53 @@ def _structure(prompt: str, research_md: str, client: OpenAI, job_id: str) -> di
     return structure
 
 
-# ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
+# ─── ONE-TIME STRUCTURE PREPARATION ──────────────────────────────────────────
 
+BATCH_SIZE = 4
+
+def _prepare_structure(structure: dict, job_id: str) -> None:
+    """Perform one-time setup on the structure before fan-out to batches.
+    - Assign sequential section numbers to section_divider slides
+    - Null out unreachable image URLs; fallback to valid images for title/divider slides
+    """
+    slides: list = structure.get("slides", [])
+
+    # ── Section numbering ─────────────────────────────────────────────────
+    section_num = 0
+    for slide in slides:
+        if slide.get("layout") == "section_divider":
+            section_num += 1
+            slide["section_number"] = section_num
+
+    # ── Image URL validation & fallback ────────────────────────────────────
+    # Collect all unique image URLs and validate them
+    all_urls: set[str] = set()
+    for slide in slides:
+        url = slide.get("image_url")
+        if url:
+            all_urls.add(url)
+
+    valid_urls: list[str] = []
+    invalid_urls: set[str] = set()
+    for url in sorted(all_urls):
+        if _check_image_url(url, job_id):
+            valid_urls.append(url)
+        else:
+            invalid_urls.add(url)
+
+    if invalid_urls:
+        print(f"[{job_id}] {len(invalid_urls)} image URL(s) unreachable, applying fallback...")
+        for slide in slides:
+            url = slide.get("image_url")
+            if url and url in invalid_urls:
+                if slide.get("layout") in ("title_slide", "section_divider") and valid_urls:
+                    slide["image_url"] = random.choice(valid_urls)
+                    print(f"[{job_id}] Fallback image for '{slide.get('slide_title', '')[:40]}': {slide['image_url'][:60]}...")
+                else:
+                    slide["image_url"] = None
+
+
+# ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 def handler(event: dict, context) -> None:  # noqa: ANN001
     """Entry point – invoked asynchronously; no HTTP response required."""
     job_id: str = event["job_id"]
@@ -454,19 +501,29 @@ def handler(event: dict, context) -> None:  # noqa: ANN001
         print(f"[{job_id}] Stage 2: Structure complete ({len(structure.get('slides', []))} slides)")
         _update_job(job_id, structure_md=json.dumps(structure, indent=2))
 
-        # ── Stage 3: Delegate to build_slides Lambda ────────────────────────
-        print(f"[{job_id}] Stage 3: Invoking build_slides Lambda...")
-        _update_job(job_id, status="building", stage_message="Building your presentation\u2026")
-        boto3.client("lambda").invoke(
-            FunctionName=BUILD_SLIDES_FUNCTION_NAME,
-            InvocationType="Event",
-            Payload=json.dumps({
-                "job_id": job_id,
-                "structure": structure,
-                "settings": settings,
-            }).encode("utf-8"),
-        )
-        print(f"[{job_id}] Stage 3: build_slides invoked successfully")
+        # ── Stage 3: Prepare structure & fan out to build_slides ───────────
+        _prepare_structure(structure, job_id)
+
+        slides_list: list = structure.get("slides", [])
+        total_slides = len(slides_list)
+        total_batches = math.ceil(total_slides / BATCH_SIZE) if total_slides > 0 else 1
+
+        print(f"[{job_id}] Stage 3: Fanning out {total_batches} build_slides batch(es) for {total_slides} slides...")
+        _update_job(job_id, status="building", stage_message=f"Building slides 1-{min(BATCH_SIZE, total_slides)} of {total_slides}\u2026")
+
+        for batch_num in range(1, total_batches + 1):
+            boto3.client("lambda").invoke(
+                FunctionName=BUILD_SLIDES_FUNCTION_NAME,
+                InvocationType="Event",
+                Payload=json.dumps({
+                    "job_id": job_id,
+                    "structure": structure,
+                    "settings": settings,
+                    "batch_num": batch_num,
+                    "total_batches": total_batches,
+                }).encode("utf-8"),
+            )
+        print(f"[{job_id}] Stage 3: All {total_batches} build_slides batch(es) invoked")
 
     except Exception as exc:  # noqa: BLE001
         print(f"[{job_id}] ERROR: {exc}")
