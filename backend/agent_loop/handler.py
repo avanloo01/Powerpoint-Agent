@@ -38,7 +38,7 @@ def _supabase_request(method: str, url: str, headers: dict, body: dict | None = 
         with urlrequest.urlopen(req, timeout=10) as resp:
             raw = resp.read().decode("utf-8")
             return json.loads(raw) if raw else {}
-    except Exception:  # noqa: BLE001 – best-effort status updates must never crash the loop
+    except Exception:
         return {}
 
 
@@ -336,11 +336,11 @@ def _validate_and_fix_icons(structure: dict, job_id: str) -> int:
                     fixed = _closest_icon(icon) if _VALID_ICONS else None
                     print(f"[{job_id}] Icon fix (fuzzy): '{icon}' → '{fixed}'")
                     bullet["icon"] = fixed
-                    fixes += 1                    
-                    
+                    fixes += 1
+
     if fixes:
         print(f"[{job_id}] Fixed {fixes} invalid icon(s)")
-    return fixes   
+    return fixes
 
 def _smart_fallback_icon(name: str, bullet: dict) -> str:
     """Choose a safe fallback icon when fuzzy matching fails entirely."""

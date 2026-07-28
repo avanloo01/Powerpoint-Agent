@@ -1,0 +1,34 @@
+# Ruff configuration for the real-estate-model backend
+# This file ensures consistent linting between local dev and CI/CD
+
+target-version = "py312"
+
+# ---------------------------------------------------------------------------
+# Lint rules — explicit selection so CI and local always agree
+# ---------------------------------------------------------------------------
+[lint]
+select = [
+    "I",   # isort — sorted imports (I001)
+    "F",   # Pyflakes — unused imports, undefined names, etc.
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+]
+
+# Treat these as just warnings, not blocking errors
+ignore = [
+    "E501",  # line-too-long (handled by formatter)
+]
+
+# ---------------------------------------------------------------------------
+# Import sorting (isort-compatible)
+# ---------------------------------------------------------------------------
+[lint.isort]
+known-first-party = ["config", "utils", "finance", "timeline", "extractors", "llm", "excel_builder", "sheets"]
+force-sort-within-sections = true
+
+# ---------------------------------------------------------------------------
+# Formatting
+# ---------------------------------------------------------------------------
+[format]
+quote-style = "double"
+indent-style = "space"

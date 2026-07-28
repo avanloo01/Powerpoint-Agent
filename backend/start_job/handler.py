@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import json
 import os
-import uuid
 from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
+import uuid
 
 import boto3
 

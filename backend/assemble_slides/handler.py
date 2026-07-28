@@ -134,6 +134,7 @@ def _send_completion_email(
 def _recolor_png(png_bytes: bytes, hex_color: str) -> bytes:
     """Recolor a single-colour PNG icon to the target hex colour, preserving alpha."""
     from io import BytesIO
+
     from PIL import Image
 
     img = Image.open(BytesIO(png_bytes)).convert("RGBA")
@@ -157,19 +158,20 @@ def _recolor_png(png_bytes: bytes, hex_color: str) -> bytes:
 
 def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
     """Create the restricted execution namespace with pre-injected globals."""
+    from io import BytesIO
+
+    from PIL import Image, ImageEnhance
     import pptx
     import pptx.chart.data
     import pptx.dml.color
     import pptx.enum.chart
-    import pptx.enum.text
     import pptx.enum.shapes
-    import pptx.util
-    from io import BytesIO
-    from PIL import Image, ImageEnhance
+    import pptx.enum.text
 
     # ── Patch pptx to accept float coordinates ──
     import pptx.oxml.shapes.graphfrm as _graphfrm
     import pptx.oxml.simpletypes as _simpletypes
+    import pptx.util
 
     _orig_new_graphicFrame = _graphfrm.CT_GraphicalObjectFrame.new_graphicFrame
 
@@ -212,11 +214,12 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
             pass
 
     def _render_bullets(slide, col_x, col_w, content_y, bullets, icons, primary_color):
-        from pptx.util import Inches, Pt, Cm
+        from io import BytesIO
+
         from pptx.dml.color import RGBColor
         from pptx.enum.shapes import MSO_SHAPE
         from pptx.enum.text import MSO_AUTO_SIZE
-        from io import BytesIO
+        from pptx.util import Cm, Inches, Pt
 
         icon_size = Pt(22)
         icon_x = col_x + Inches(0.08)
@@ -313,6 +316,7 @@ def _get_image_buf_factory(image_buffers: dict[str, bytes]):
     """Return a get_image_buf(url, darken=False) closure that looks up
     pre-downloaded images, wrapping them in BytesIO and optionally darkening."""
     from io import BytesIO
+
     from PIL import Image, ImageEnhance
 
     def _get_image_buf(url: str, darken: bool = False):
@@ -370,10 +374,11 @@ def _rollback_slides(prs: object, original_count: int) -> int:
 
 def _add_references_slide(prs: object, structure: dict, settings: dict) -> None:
     """Append a References slide listing all source URLs from slide notes."""
-    from pptx.util import Inches, Pt, Cm
+    import re as _re
+
     from pptx.dml.color import RGBColor
     from pptx.enum.shapes import MSO_SHAPE
-    import re as _re
+    from pptx.util import Cm, Inches, Pt
 
     slides_data = structure.get("slides", [])
     citation_map: dict[str, str] = structure.get("_citation_map", {})

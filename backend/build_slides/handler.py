@@ -63,6 +63,7 @@ def _recolor_png(png_bytes: bytes, hex_color: str) -> bytes:
     """Recolor a single-colour PNG icon by replacing the RGB of all
     non-transparent pixels with the target hex colour, preserving alpha."""
     from io import BytesIO
+
     from PIL import Image
 
     img = Image.open(BytesIO(png_bytes)).convert("RGBA")
