@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { startGeneration, pollJobStatus, uploadDocs, type JobStatus } from '../services/api';
 import { getCurrentUserSettings, getLoginCookie, supabase } from '../services/supabase';
 
