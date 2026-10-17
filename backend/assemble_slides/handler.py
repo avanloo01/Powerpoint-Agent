@@ -221,12 +221,58 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
         from pptx.enum.text import MSO_AUTO_SIZE
         from pptx.util import Cm, Inches, Pt
 
+        # Readable body copy: 12pt bold titles, 11pt descriptions.
+        TITLE_PT = 12
+        DESC_PT = 11
+        LINE_SPACING = 1.25  # multiplier applied to font size to estimate line height
+
         icon_size = Pt(22)
         icon_x = col_x + Inches(0.08)
         text_x = icon_x + icon_size + Pt(6)
         text_w = col_w - Inches(0.16) - icon_size - Pt(6)
 
+        def _est_lines(text, font_pt):
+            """Estimate wrapped line count for `text` in a `text_w`-wide box.
+            python-pptx cannot measure text, so approximate glyph width at ~0.55em
+            (deliberately a little wide so we over-reserve vertical space, not under)."""
+            if not text:
+                return 0
+            chars_per_line = max(8, int(text_w / (Pt(font_pt) * 0.55)))
+            lines, cur = 1, 0
+            for word in text.split():
+                add = len(word) + (1 if cur else 0)
+                if cur and cur + add > chars_per_line:
+                    lines += 1
+                    cur = len(word)
+                else:
+                    cur += add
+            return lines
+
+        def _block_height(b, title_pt, desc_pt):
+            return (
+                _est_lines(b.get("title", ""), title_pt) * Pt(title_pt)
+                + _est_lines(b.get("description") or "", desc_pt) * Pt(desc_pt)
+            ) * LINE_SPACING
+
+        # How much vertical room is there before the conclusion box / slide edge?
+        try:
+            slide_h = int(slide.part.package.presentation_part.presentation.slide_height)
+        except Exception:  # noqa: BLE001
+            slide_h = int(Cm(19.05))  # 7.5in fallback
         bullet_top = content_y + Cm(0.35)
+        available = (slide_h - int(Cm(2.6))) - bullet_top
+
+        # Prefer 12/11pt; shrink only as far as 10/9pt when content is very dense.
+        title_pt, desc_pt = TITLE_PT, DESC_PT
+        for candidate in range(DESC_PT, 8, -1):
+            needed = sum(
+                _block_height(b, candidate + 1, candidate) + Pt(10) for b in bullets
+            )
+            if needed <= available:
+                title_pt, desc_pt = candidate + 1, candidate
+                break
+        else:
+            title_pt, desc_pt = 10, 9
 
         for b in bullets:
             icon_y = bullet_top + Pt(3)
@@ -250,7 +296,7 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
             p1 = tf.paragraphs[0]
             run1 = p1.add_run()
             run1.text = b.get("title", "")
-            run1.font.size = Pt(10)
+            run1.font.size = Pt(title_pt)
             run1.font.bold = True
             run1.font.color.rgb = RGBColor(0, 0, 0)
 
@@ -258,12 +304,14 @@ def _make_namespace(image_buffers: dict[str, bytes] | None = None) -> dict:
                 p2 = tf.add_paragraph()
                 run2 = p2.add_run()
                 run2.text = b["description"]
-                run2.font.size = Pt(8)
+                run2.font.size = Pt(desc_pt)
                 run2.font.color.rgb = RGBColor(0, 0, 0)
 
             tf.auto_size = MSO_AUTO_SIZE.SHAPE_TO_FIT_TEXT
 
-            bullet_top += Inches(0.6)
+            # Advance by the estimated wrapped height so larger text never collides.
+            est_h = _block_height(b, title_pt, desc_pt)
+            bullet_top += max(Inches(0.6), int(est_h) + Pt(10))
 
         return bullet_top
 

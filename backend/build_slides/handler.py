@@ -150,8 +150,8 @@ STYLE GUIDE:
     `content_y = BOX_HEADER_Y + BOX_HEADER_H + Inches(0.1)`
   This applies to ALL columns — chart, bullet_list, text, etc.
 - bullets: call the pre-injected `render_bullets(slide_shape, col_x, col_w, content_y, bullets, icons, PRIMARY)`.
-  It handles icons (Pt(22) pictures or PRIMARY oval fallback), title (bold 10pt), description (10pt),
-  auto-sizing, and spacing (Inches(0.6) per bullet). Returns the new content_y after the last bullet.
+  It handles icons (Pt(22) pictures or PRIMARY oval fallback), title (bold 12pt), description (11pt),
+  auto-sizing, and spacing that grows with wrapped text (it auto-shrinks to 10/9pt only when a column is too dense). Returns the new content_y after the last bullet.
   slide_shape = your pptx Slide object (result of add_slide), NOT the data dict.
   CRITICAL: NEVER render Unicode symbols (↑ ↓ → ← ✓ ✗ ● ◆ •) as text characters in title or description.
 - separators: usable = sw - 2*margin - gap; col_w = int(usable * width_ratio).  ← MUST use int() — float EMU values corrupt the PPTX XML.
