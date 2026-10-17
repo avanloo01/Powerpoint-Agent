@@ -393,7 +393,7 @@ def _smart_fallback_icon(name: str, bullet: dict) -> str:
         "logistic": "truck.png", "delivery": "truck.png",
         "efficiency": "gear-six.png", "operation": "gear-six.png",
         "strategy": "strategy.png", "plan": "strategy.png",
-        "regulation": "gavel.png", "compliance": "gavel.png",
+        "regulation": "gavel.png",
         "global": "globe.png", "world": "globe.png",
         "europe": "globe-hemisphere-east.png", "belgium": "globe-hemisphere-east.png",
         "risk": "shield-warning.png", "warning": "shield-warning.png",
