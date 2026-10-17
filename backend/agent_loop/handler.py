@@ -297,12 +297,20 @@ def _resolve_citations(structure: dict, citation_map: dict[str, str]) -> None:
 # ─── ICON VALIDATION ──────────────────────────────────────────────────────────
 # Extract the valid icon list from _STRUCTURE_SCHEMA at import time
 _VALID_ICONS: set[str] = set()
+# NOTE: the previous pattern used r'\\.png', which in a raw string means a literal
+# backslash followed by any character — it never matched, so _VALID_ICONS stayed
+# empty and every icon fell through the (disabled) validation. Match any
+# pipe-delimited run of *.png names instead.
 _icon_match = re.search(
-    r'"icon": "([^"]+(?:\\.png(?:\s*\|\s*[^"]+\\.png)*))"',
+    r'"icon": "([^"]*?\.png(?:\s*\|\s*[^"]*?\.png)*)"',
     _STRUCTURE_SCHEMA,
 )
 if _icon_match:
     _VALID_ICONS = {name.strip() for name in _icon_match.group(1).split("|")}
+
+# Guaranteed-valid icon used when neither keyword nor fuzzy matching finds a fit.
+_DEFAULT_BULLET_ICON = "sparkle.png"
+print(f"[icons] Loaded {len(_VALID_ICONS)} valid icon names")
 
 
 def _closest_icon(name: str, cutoff: float = 0.6) -> str | None:
@@ -314,32 +322,44 @@ def _closest_icon(name: str, cutoff: float = 0.6) -> str | None:
 
 
 def _validate_and_fix_icons(structure: dict, job_id: str) -> int:
-    """Walk the structure and fix any invalid icon names. Returns count of fixes."""
+    """Give every bullet a valid icon filename. Returns count of fixes.
+
+    Resolution order for a missing (null/empty) or invalid icon:
+      1. valid filename from _VALID_ICONS  → keep as-is
+      2. semantic keyword match on title + description (+ the bad name itself)
+      3. difflib fuzzy match against the real icon list
+      4. _DEFAULT_BULLET_ICON              → always valid, never leaves the field empty
+    """
     fixes = 0
     for slide in structure.get("slides", []):
         for col in slide.get("columns", []):
             for bullet in col.get("bullets") or []:
-                icon = bullet.get("icon", "")
-                if not icon:
-                    continue
-                # Step 1: if _VALID_ICONS is populated and icon is valid, skip
-                if _VALID_ICONS and icon in _VALID_ICONS:
+                icon = bullet.get("icon")
+                # Step 1: already valid — leave it alone
+                if isinstance(icon, str) and icon.strip() in _VALID_ICONS:
                     continue
 
-                # Step 2: try fuzzy matching against the known valid set
-                fallback = _smart_fallback_icon(icon, bullet)
-                if fallback:
-                    print(f"[{job_id}] Icon fix (fallback): '{icon}' → '{fallback}'")
-                    bullet["icon"] = fallback
-                    fixes += 1
-                else:
-                    fixed = _closest_icon(icon) if _VALID_ICONS else None
-                    print(f"[{job_id}] Icon fix (fuzzy): '{icon}' → '{fixed}'")
-                    bullet["icon"] = fixed
-                    fixes += 1
+                original = icon
+                name = icon if isinstance(icon, str) else ""
+
+                # Step 2: semantic keyword match (also covers null icons)
+                fixed = _smart_fallback_icon(name, bullet)
+                # Step 3: fuzzy match against the real icon list
+                if not fixed or fixed not in _VALID_ICONS:
+                    fixed = _closest_icon(name) if name.strip() else None
+                # Step 4: guaranteed fallback
+                if not fixed or fixed not in _VALID_ICONS:
+                    fixed = _DEFAULT_BULLET_ICON
+
+                bullet["icon"] = fixed
+                fixes += 1
+                print(
+                    f"[{job_id}] Icon fix: {original!r} → '{fixed}' "
+                    f"({(bullet.get('title') or '')[:40]})"
+                )
 
     if fixes:
-        print(f"[{job_id}] Fixed {fixes} invalid icon(s)")
+        print(f"[{job_id}] Fixed {fixes} icon(s)")
     return fixes
 
 def _smart_fallback_icon(name: str, bullet: dict) -> str:
@@ -348,6 +368,15 @@ def _smart_fallback_icon(name: str, bullet: dict) -> str:
     keyword_map = {
         "money": "currency-dollar.png", "finance": "currency-dollar.png",
         "revenue": "currency-dollar.png", "cost": "currency-dollar.png",
+        # ── legal / regulatory / enforcement vocabulary ──
+        "penal": "gavel.png", "fine": "gavel.png", "sanction": "gavel.png",
+        "enforcement": "gavel.png", "compliance": "gavel.png",
+        "regulator": "gavel.png", "reprimand": "warning.png",
+        "legal": "scales.png", "legislation": "scales.png", "statutory": "scales.png",
+        "bank": "bank.png", "investigat": "magnifying-glass.png",
+        "audit": "clipboard-text.png", "review": "clipboard-text.png",
+        "remedi": "wrench.png", "deficien": "shield-warning.png",
+        "cooperat": "handshake.png", "whistleblow": "megaphone-simple.png",
         "folder": "folder-simple.png", "profit": "chart-line-up.png", "growth": "chart-line-up.png", "trend": "chart-line-up.png", "increase": "chart-line-up.png",
         "decrease": "chart-line-down.png", "decline": "chart-line-down.png",
         "market": "chart-bar.png", "share": "chart-pie.png",
@@ -378,7 +407,7 @@ def _smart_fallback_icon(name: str, bullet: dict) -> str:
         "shopping": "shopping-cart-simple.png", "retail": "storefront.png",
         "store": "storefront.png", "shop": "storefront.png",
         "sale": "tag.png", "price": "tag.png",
-        "target": "crosshair-simple.png", "goal": "target.png",
+        "target": "crosshair-simple.png", "goal": "crosshair-simple.png",
         "star": "star.png", "favorite": "star.png",
         "lock": "lock-simple.png", "security": "lock-simple.png",
         "network": "share-network.png", "connect": "share-network.png",
